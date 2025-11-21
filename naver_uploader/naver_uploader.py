@@ -1,5 +1,3 @@
-# naver_uploader/naver_uploader.py
-
 from naver_uploader.image_uploader import ImageUploader
 from naver_uploader.naver_api_client import NaverApiClient
 from naver_uploader.builders.uniqlo.jp_builder import UniqloJpBuilder
@@ -39,11 +37,8 @@ class NaverUploader:
 
             body = builder.build(item, imgs)
 
-            # 구매대행 JSON은 product API 다름
-            if getattr(item, "purchase_agent", False):
-                path = "/external/v2/products"
-            else:
-                path = "/external/v2/products"
+            # 구매대행 여부
+            path = "/external/v2/products"
 
             resp = self.api.request("POST", path, data=body)
             print("등록 완료:", resp)

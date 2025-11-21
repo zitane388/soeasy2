@@ -1,54 +1,49 @@
-# naver_uploader/builders/uniqlo/jp_builder.py
-
 from ..purchase_agent_base import PurchaseAgentBaseBuilder
 
 
 class UniqloJpBuilder(PurchaseAgentBaseBuilder):
     """
-    유니클로 JP Builder (옵션 처리 + 구매대행 처리 통합)
+    유니클로 JP Builder
+    - 구매대행 여부 판단 후 BaseBuilder 또는 PurchaseAgent 템플릿으로 처리
     """
 
     def matches(self, brand, country):
         return brand == "uniqlo" and country == "jp"
 
-    def apply_brand_specific_rules(self, item, body):
-        """
-        구매대행 모드 우선 처리
-        """
+    def build(self, item, uploaded_images):
+        # 구매대행이면 무조건 구매대행 템플릿 사용
         if getattr(item, "purchase_agent", False):
-            rep = body.get("representativeImage")
-            add = body.get("additionalImages", [])
+            rep = uploaded_images[0]
+            add = uploaded_images[1:]
             return self.build_purchase_agent_body(item, rep, add)
 
-        # -----------------------------
-        # 일반 상품 모드 (기존 옵션 처리)
-        # -----------------------------
+        # 기본 템플릿
+        body = super().build(item, uploaded_images)
         parsed = item.parsed_raw
 
+        # 옵션 없으면 NORMAL
         if "colors" not in parsed or "sizes" not in parsed:
-            body["optionManageType"] = "NORMAL"
-            body["options"] = []
             return body
 
-        colors = parsed.get("colors", [])
-        sizes = parsed.get("sizes", [])
+        colors = parsed["colors"]
+        sizes = parsed["sizes"]
         prices = parsed.get("prices", {})
 
         option_list = []
 
         for c in colors:
-            c_name = c.get("name")
+            c_name = c["name"]
             c_code = c.get("code")
-            c_price = prices.get(c_code)
+            base_price = prices.get(c_code)
 
-            if isinstance(c_price, str):
+            if isinstance(base_price, str):
                 try:
-                    c_price = int(c_price.replace("¥", "").replace(",", "").strip())
+                    base_price = int(base_price.replace("¥", "").replace(",", ""))
                 except:
-                    c_price = None
+                    base_price = None
 
             for s in sizes:
-                s_name = s.get("name")
+                s_name = s["name"]
                 disabled = s.get("disabled", False)
 
                 opt = {
@@ -56,15 +51,15 @@ class UniqloJpBuilder(PurchaseAgentBaseBuilder):
                     "stockQuantity": 30 if not disabled else 0
                 }
 
-                if c_price is not None:
-                    opt["price"] = c_price
+                if base_price is not None:
+                    opt["price"] = base_price
 
                 option_list.append(opt)
 
-        body["optionManageType"] = "COMBINATION"
-        body["options"] = option_list
+        body["originProduct"]["optionManageType"] = "COMBINATION"
+        body["originProduct"]["options"] = option_list
 
-        body["optionCombination"] = [
+        body["originProduct"]["optionCombination"] = [
             {"optionName": "색상", "optionValue": [c["name"] for c in colors]},
             {"optionName": "사이즈", "optionValue": [s["name"] for s in sizes]},
         ]

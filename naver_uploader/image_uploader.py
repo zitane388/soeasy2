@@ -1,12 +1,16 @@
 # naver_uploader/image_uploader.py
 
 import requests
-from .naver_api_client import NaverApiClient
-
+import time
+import json
+import bcrypt
+import pybase64
+from naver_uploader.naver_api_client import NaverApiClient
 
 class ImageUploader:
     """
     이미지 URL → 네이버 스마트스토어 CDN 업로드
+    구매대행은 반드시 EXTERNAL v1 이미지 업로드 API 사용해야 함.
     """
 
     def __init__(self):
@@ -16,10 +20,7 @@ class ImageUploader:
         """
         외부 이미지 URL을 스마트스토어 이미지 서버로 업로드
         """
-
-        # ---------------------------------------------------------
         # 1) 이미지 다운로드
-        # ---------------------------------------------------------
         try:
             resp = requests.get(url, timeout=10)
             resp.raise_for_status()
@@ -28,31 +29,30 @@ class ImageUploader:
             print(f"[IMG] 이미지 다운로드 실패: {url} → {e}")
             return None
 
-        # ---------------------------------------------------------
-        # 2) 네이버 명세에 맞는 multipart 업로드
-        # ---------------------------------------------------------
+        # 2) 업로드용 토큰 발급
+        token = self.api._get_token()
+
+        upload_url = "https://api.commerce.naver.com/external/v1/product-images/upload"
+
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/json;charset=UTF-8"
+        }
+
         files = {
-            # 🔥 네이버는 반드시 imageFiles 라는 키로 받아야 함
             "imageFiles": ("image.jpg", img_bytes, "image/jpeg")
         }
 
+        # 3) 직접 요청(중요!)
         try:
-            result = self.api.request(
-                method="POST",
-                path="/product-images/upload",  # external/v1/product-images/upload
-                files=files,
-                data=None
-            )
+            print("\n[UPLOAD] 이미지 업로드 요청 → external/v1/product-images/upload")
+
+            r = requests.post(upload_url, headers=headers, files=files)
+            print("[UPLOAD RESP]", r.status_code, r.text)
+
+            r.raise_for_status()
+            return r.json()["images"][0]["url"]
 
         except Exception as e:
             print("[IMG] 네이버 API 업로드 실패:", e)
-            return None
-
-        # ---------------------------------------------------------
-        # 3) 반환값 파싱
-        # ---------------------------------------------------------
-        try:
-            return result["images"][0]["url"]
-        except Exception:
-            print("[IMG] 업로드 응답 파싱 실패:", result)
             return None

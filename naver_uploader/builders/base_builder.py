@@ -2,86 +2,109 @@
 
 import html
 
+# 주소 ID (네이버 필수값)
+SHIPPING_ADDR_ID = 106712350
+RETURN_ADDR_ID   = 106712349
 
 class BaseBuilder:
-    """
-    스마트스토어 상품 등록 JSON의 기본 구조를 생성하는 공통 Builder.
 
-    - 브랜드/국가별 Builder 클래스는 BaseBuilder 를 상속하여
-      필요한 부분만 override 하면 됨.
-    """
-
-    def __init__(self):
-        pass
-
-    # ---------------------------------------------------------
-    # 외부에서 호출하는 메인 함수
-    # ---------------------------------------------------------
     def build(self, item, uploaded_images):
-        """
-        item : ProductItem
-        uploaded_images : SmartStore CDN에 업로드된 이미지 URL 리스트
-        """
 
-        name = item.final_name
+        # 기본 필드들
+        name = item.final_name or "상품명 미지정"
         desc = item.final_description or ""
-
-        # HTML safe 변환 + 줄바꿈 치환
         desc_html = html.escape(desc).replace("\n", "<br>")
 
-        # 가격 확보 (없으면 0)
-        price = item.parsed_raw.get("price", 0)
-        if isinstance(price, str):
+        raw_price = item.parsed_raw.get("price", 10000)
+        if isinstance(raw_price, str):
             try:
-                price = int(price.replace(",", "").strip())
+                raw_price = int(raw_price.replace(",", "").replace("¥", "").strip())
             except:
-                price = 0
+                raw_price = 10000
 
-        # 기본 JSON 골격
+        # 네이버 규칙: 최소 10원
+        price = max(raw_price, 10)
+
+        category = item.parsed_raw.get("categoryId", "50000826")
+        brand = item.brand or "Unknown"
+
+        representative = uploaded_images[0] if uploaded_images else None
+        additional = uploaded_images[1:] if uploaded_images else []
+
+        # 주소 ID (네이버 필수)
+        shipping_id = getattr(item, "shipping_addr_id", SHIPPING_ADDR_ID)
+        return_id   = getattr(item, "return_addr_id", RETURN_ADDR_ID)
+
         body = {
-            "subject": name,
-            "detailContent": desc_html,
+            "originProduct": {
+                "statusType": "SALE",
+                "leafCategoryId": category,
 
-            # 대표 이미지 (첫 번째 이미지)
-            "representativeImage": uploaded_images[0] if uploaded_images else None,
+                "name": name,
+                "detailContent": desc_html,
 
-            # 나머지 부가 이미지
-            "additionalImages": uploaded_images[1:] if uploaded_images else [],
+                "images": {
+                    "representativeImage": {"url": representative},
+                    "additionalImages": [{"url": u} for u in additional]
+                },
 
-            # 판매가
-            "salePrice": price,
+                "salePrice": price,
+                "stockQuantity": 50,
 
-            # 판매상태
-            "statusType": "SALE",
+                "deliveryInfo": {
+                    "deliveryType": "DELIVERY",
+                    "deliveryAttributeType": "NORMAL",
 
-            # 기본 재고
-            "stockQuantity": 50,
+                    # ★ 네이버 필수 3개 값 수정 완료
+                    "deliveryCompany": "CJGLS",
+                    "deliveryFee": {
+                        "deliveryFeeType": "FREE",
+                        "deliveryFeePayType": "PREPAID",
+                        "baseFee": 3000
+                    },
 
-            # 배송 설정 (기본값)
-            "delivery": {
-                "method": "DELIVERY",
-                "feeType": "PAID",
-                "deliveryFee": 3000
+                    "claimDeliveryInfo": {
+                        "returnDeliveryCompanyPriorityType": "PRIMARY",
+                        "returnDeliveryFee": 3000,
+                        "exchangeDeliveryFee": 3000,
+                        "shippingAddressId": shipping_id,
+                        "returnAddressId": return_id,
+                        "freeReturnInsuranceYn": False
+                    }
+                },
+
+                "detailAttribute": {
+                    "minorPurchasable": False,
+
+                    "afterServiceInfo": {
+                        "afterServiceTelephoneNumber": "02-0000-0000",
+                        "afterServiceGuideContent": "상세설명 참조"
+                    },
+
+                    "originAreaInfo": {
+                        "originAreaType": "INCLUDE_IN_DETAILS",
+                        "content": "상세설명 참조",
+                        "originAreaCode": "03",
+                        "wholeOriginAreaName": "상세설명에 표시",
+                        "plural": False
+                    },
+
+                    "productInfoProvidedNotice": {
+                        "productInfoProvidedNoticeType": "ETC",
+                        "etc": {
+                            "itemName": "의류",
+                            "modelName": "DEFAULT-MODEL",
+                            "manufacturer": brand,
+                            "afterServiceDirector": "판매자"
+                        }
+                    }
+                }
             },
 
-            # 옵션은 기본적으로 없음 (브랜드/국가별 Builder에서 override)
-            "optionManageType": "NORMAL",
-            "options": []
+            "smartstoreChannelProduct": {
+                "naverShoppingRegistration": False,
+                "channelProductDisplayStatusType": "ON"
+            }
         }
 
-        # 브랜드/국가별 builder가 옵션 변환 구현 가능
-        body = self.apply_brand_specific_rules(item, body)
-
-        return body
-
-    # ---------------------------------------------------------
-    # 브랜드/국가별 커스텀 로직을 override 하는 함수
-    # ---------------------------------------------------------
-    def apply_brand_specific_rules(self, item, body: dict) -> dict:
-        """
-        유니클로 JP / US / 글로벌 등에서
-        색상/사이즈/옵션을 스마트스토어 규격으로 변환하는 부분.
-
-        기본 BaseBuilder에서는 아무 작업도 하지 않는다.
-        """
         return body
