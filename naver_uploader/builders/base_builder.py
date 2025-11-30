@@ -2,50 +2,82 @@
 
 import html
 
-# 주소 ID (네이버 필수값)
 SHIPPING_ADDR_ID = 106712350
-RETURN_ADDR_ID   = 106712349
+RETURN_ADDR_ID   = 106682366
+
 
 class BaseBuilder:
 
-    def build(self, item, uploaded_images):
+    def build(self, item, detail_images, representative_uploaded_url=None):
 
-        # 기본 필드들
+        # -------------------------------
+        # 기본 필드
+        # -------------------------------
         name = item.final_name or "상품명 미지정"
-        desc = item.final_description or ""
-        desc_html = html.escape(desc).replace("\n", "<br>")
+        desc = item.final_detail_text or ""
 
-        raw_price = item.parsed_raw.get("price", 10000)
-        if isinstance(raw_price, str):
-            try:
-                raw_price = int(raw_price.replace(",", "").replace("¥", "").strip())
-            except:
-                raw_price = 10000
+        price = item.base_price_krw
 
-        # 네이버 규칙: 최소 10원
-        price = max(raw_price, 10)
+        category = item.category_code
+        brand    = item.brand or "Unknown"
 
-        category = item.parsed_raw.get("categoryId", "50000826")
-        brand = item.brand or "Unknown"
+        # -------------------------------
+        # 이미지 구성
+        # -------------------------------
+        representative = (
+            {"url": representative_uploaded_url}
+            if representative_uploaded_url
+            else {"url": None}
+        )
 
-        representative = uploaded_images[0] if uploaded_images else None
-        additional = uploaded_images[1:] if uploaded_images else []
+        optional = []
+        for u in detail_images:
+            if isinstance(u, str):
+                optional.append({"url": u})
+            else:
+                optional.append(u)
 
-        # 주소 ID (네이버 필수)
+        if len(optional) > 9:
+            optional = optional[:9]
+
         shipping_id = getattr(item, "shipping_addr_id", SHIPPING_ADDR_ID)
         return_id   = getattr(item, "return_addr_id", RETURN_ADDR_ID)
 
+        # -------------------------------
+        # 옵션 기본 틀
+        # -------------------------------
+        option_info_empty = {
+            "simpleOptionSortType": "CREATE",
+            "optionSimple": [],
+            "optionCustom": [],
+            "optionCombinationSortType": "CREATE",
+            "optionCombinationGroupNames": {},
+            "optionCombinations": []
+        }
+
+        # ----------------------------------------------------
+        # 🔥 naverShoppingSearchInfo (detailAttribute 내부에 위치해야 함)
+        # ----------------------------------------------------
+        naver_shopping_info = {
+            "modelName": item.model_number or "",
+            "manufacturerName": brand,
+            "brandName": brand
+        }
+
+        # -------------------------------
+        # 최종 SmartStore body
+        # -------------------------------
         body = {
             "originProduct": {
                 "statusType": "SALE",
                 "leafCategoryId": category,
 
                 "name": name,
-                "detailContent": desc_html,
+                "detailContent": desc,
 
                 "images": {
-                    "representativeImage": {"url": representative},
-                    "additionalImages": [{"url": u} for u in additional]
+                    "representativeImage": representative,
+                    "optionalImages": optional
                 },
 
                 "salePrice": price,
@@ -54,19 +86,21 @@ class BaseBuilder:
                 "deliveryInfo": {
                     "deliveryType": "DELIVERY",
                     "deliveryAttributeType": "NORMAL",
-
-                    # ★ 네이버 필수 3개 값 수정 완료
                     "deliveryCompany": "CJGLS",
                     "deliveryFee": {
                         "deliveryFeeType": "FREE",
                         "deliveryFeePayType": "PREPAID",
-                        "baseFee": 3000
+                        "baseFee": 0,
+                        "deliveryFeeByArea": {
+                            "deliveryAreaType": "AREA_3",
+                            "area2extraFee": 5000,
+                            "area3extraFee": 5000
+                        }
                     },
-
                     "claimDeliveryInfo": {
                         "returnDeliveryCompanyPriorityType": "PRIMARY",
-                        "returnDeliveryFee": 3000,
-                        "exchangeDeliveryFee": 3000,
+                        "returnDeliveryFee": 40000,
+                        "exchangeDeliveryFee": 80000,
                         "shippingAddressId": shipping_id,
                         "returnAddressId": return_id,
                         "freeReturnInsuranceYn": False
@@ -74,36 +108,46 @@ class BaseBuilder:
                 },
 
                 "detailAttribute": {
-                    "minorPurchasable": False,
+                    "minorPurchasable": True,
+
+                    "optionInfo": option_info_empty,
 
                     "afterServiceInfo": {
-                        "afterServiceTelephoneNumber": "02-0000-0000",
-                        "afterServiceGuideContent": "상세설명 참조"
+                        "afterServiceTelephoneNumber": "010-3013-5686",
+                        "afterServiceGuideContent": "톡톡이나 문자로 문의주시면 최대한 빠르게 답변 드리겠습니다."
                     },
 
                     "originAreaInfo": {
                         "originAreaType": "INCLUDE_IN_DETAILS",
-                        "content": "상세설명 참조",
+                        "content": "상세설명에 표시",
                         "originAreaCode": "03",
                         "wholeOriginAreaName": "상세설명에 표시",
                         "plural": False
+                    },
+                    
+                    "certificationTargetExcludeContent": {
+                        "kcCertifiedProductExclusionYn": "KC_EXEMPTION_OBJECT",
+                        "greenCertifiedProductExclusionYn": True,
+                        "kcExemptionType": "OVERSEAS"
                     },
 
                     "productInfoProvidedNotice": {
                         "productInfoProvidedNoticeType": "ETC",
                         "etc": {
-                            "itemName": "의류",
-                            "modelName": "DEFAULT-MODEL",
-                            "manufacturer": brand,
-                            "afterServiceDirector": "판매자"
+                            "itemName": "상품상세 참조",
+                            "modelName": "상품상세 참조",
+                            "manufacturer": "상품상세 참조",
+                            "customerServicePhoneNumber": "010-3013-5686"
                         }
-                    }
+                    },
+
+                    "naverShoppingSearchInfo": naver_shopping_info
                 }
             },
 
             "smartstoreChannelProduct": {
                 "naverShoppingRegistration": False,
-                "channelProductDisplayStatusType": "ON"
+                "channelProductDisplayStatusType": "SUSPENSION"
             }
         }
 

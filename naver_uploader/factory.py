@@ -1,6 +1,8 @@
 # naver_uploader/factory.py
 
-from naver_uploader.builders.uniqlo.jp_builder import UniqloJpProductBuilder
+from naver_uploader.builders.uniqlo.jp_builder import UniqloJpBuilder
+from naver_uploader.builders.gu.gu_jp_builder import GuJpBuilder
+
 
 class BuilderFactory:
     """
@@ -8,8 +10,8 @@ class BuilderFactory:
     """
 
     BUILDERS = [
-        UniqloJpProductBuilder(),
-        # 다음에 US/Global/Muji/Zara 추가 가능
+        UniqloJpBuilder(),   # 기존 유니클로
+        GuJpBuilder(),              # ★ 신규 GU 일본 빌더 추가
     ]
 
     @staticmethod

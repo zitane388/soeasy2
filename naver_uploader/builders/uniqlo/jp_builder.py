@@ -1,67 +1,143 @@
+# naver_uploader/builders/uniqlo/uniqlo_jp_builder.py
+
 from ..purchase_agent_base import PurchaseAgentBaseBuilder
+from itertools import product
 
 
 class UniqloJpBuilder(PurchaseAgentBaseBuilder):
-    """
-    유니클로 JP Builder
-    - 구매대행 여부 판단 후 BaseBuilder 또는 PurchaseAgent 템플릿으로 처리
-    """
 
     def matches(self, brand, country):
         return brand == "uniqlo" and country == "jp"
 
-    def build(self, item, uploaded_images):
-        # 구매대행이면 무조건 구매대행 템플릿 사용
+    # ======================================================
+    # 메인 build()
+    # ======================================================
+    def build(self, item, detail_images, representative_uploaded_url=None):
+
+        # 1) 구매대행 처리 우선
         if getattr(item, "purchase_agent", False):
-            rep = uploaded_images[0]
-            add = uploaded_images[1:]
+            rep = representative_uploaded_url
+            add = detail_images
             return self.build_purchase_agent_body(item, rep, add)
 
-        # 기본 템플릿
-        body = super().build(item, uploaded_images)
+        # 기본 BaseBuilder build → 대표/상세 이미지 전달
+        body = super().build(
+            item,
+            detail_images=detail_images,
+            representative_uploaded_url=representative_uploaded_url
+        )
+
         parsed = item.parsed_raw
-
-        # 옵션 없으면 NORMAL
-        if "colors" not in parsed or "sizes" not in parsed:
-            return body
-
-        colors = parsed["colors"]
-        sizes = parsed["sizes"]
+        option_groups = parsed.get("options", [])
         prices = parsed.get("prices", {})
 
-        option_list = []
+        # 옵션 없음
+        if not option_groups:
+            return body
 
-        for c in colors:
-            c_name = c["name"]
-            c_code = c.get("code")
-            base_price = prices.get(c_code)
+        if len(option_groups) == 1:
+            return self._build_simple(body, option_groups[0])
+        else:
+            return self._build_combination(body, option_groups, prices, parsed)
 
-            if isinstance(base_price, str):
-                try:
-                    base_price = int(base_price.replace("¥", "").replace(",", ""))
-                except:
-                    base_price = None
+    # ======================================================
+    # SIMPLE 옵션
+    # ======================================================
+    def _build_simple(self, body, group):
+        group_name = group["group_name"]
+        values = group["values"]
 
-            for s in sizes:
-                s_name = s["name"]
-                disabled = s.get("disabled", False)
+        simple_list = []
+        for i, v in enumerate(values, start=1):
+            simple_list.append({
+                "id": i,
+                "groupName": group_name,
+                "name": v["name"],
+                "usable": not v.get("disabled", False)
+            })
 
-                opt = {
-                    "optionName": f"{c_name} / {s_name}",
-                    "stockQuantity": 30 if not disabled else 0
-                }
+        body["originProduct"]["detailAttribute"]["optionInfo"] = {
+            "simpleOptionSortType": "CREATE",
+            "optionSimple": simple_list,
+            "optionCustom": [],
+            "optionCombinationSortType": "CREATE",
+            "optionCombinationGroupNames": {},
+            "optionCombinations": []
+        }
 
-                if base_price is not None:
-                    opt["price"] = base_price
+        return body
 
-                option_list.append(opt)
+    # ======================================================
+    # COMBINATION 옵션
+    # ======================================================
+    def _build_combination(self, body, option_groups, prices, parsed):
 
-        body["originProduct"]["optionManageType"] = "COMBINATION"
-        body["originProduct"]["options"] = option_list
+        group_names = [g["group_name"] for g in option_groups]
+        group_values = [g["values"] for g in option_groups]
 
-        body["originProduct"]["optionCombination"] = [
-            {"optionName": "색상", "optionValue": [c["name"] for c in colors]},
-            {"optionName": "사이즈", "optionValue": [s["name"] for s in sizes]},
-        ]
+        # 기본가
+        raw_base = parsed.get("price", 0)
+        if isinstance(raw_base, str):
+            try:
+                base_price = int(raw_base.replace("¥", "").replace(",", ""))
+            except:
+                base_price = 0
+        else:
+            base_price = raw_base
+
+        combinations = list(product(*group_values))
+        opt_combs = []
+        comb_id = 1
+
+        for combo in combinations:
+            names = [v["name"] for v in combo]
+
+            # 가격 추출 (색상 기반이 일반적)
+            price_val = None
+            for v in combo:
+                code = v.get("code")
+                if code and code in prices:
+                    try:
+                        price_val = int(prices[code].replace("¥", "").replace(",", ""))
+                    except:
+                        pass
+
+            # 추가금 계산
+            if price_val is not None and base_price:
+                additional = max(price_val - base_price, 0)
+            else:
+                additional = 0
+
+            disabled = any(v.get("disabled", False) for v in combo)
+
+            opt_combs.append({
+                "optionName1": names[0] if len(names) >= 1 else "",
+                "optionName2": names[1] if len(names) >= 2 else "",
+                "optionName3": names[2] if len(names) >= 3 else "",
+                "optionName4": names[3] if len(names) >= 4 else "",
+                "stockQuantity": 0 if disabled else 30,
+                "price": additional,          # ★ 추가금
+                "usable": not disabled,
+                "sellerManagerCode": "",
+                "skuYn": False
+            })
+
+            comb_id += 1
+
+        # 그룹명 구성
+        comb_group_names = {
+            f"optionGroupName{i + 1}": group_names[i]
+            for i in range(len(group_names))
+        }
+
+        # 네이버 옵션 구조
+        body["originProduct"]["detailAttribute"]["optionInfo"] = {
+            "simpleOptionSortType": "CREATE",
+            "optionSimple": [],
+            "optionCustom": [],
+            "optionCombinationSortType": "CREATE",
+            "optionCombinationGroupNames": comb_group_names,
+            "optionCombinations": opt_combs
+        }
 
         return body

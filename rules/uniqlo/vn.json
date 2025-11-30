@@ -1,0 +1,39 @@
+{
+    "product_name": [
+        "h1",
+        "meta[property='og:title']"
+    ],
+
+    "price": [
+        ".fr-product-price-info-ER span span",
+        "div[data-test='price'] span"
+    ],
+
+    "color": [
+        "button[data-testid='ITOChip']"
+    ],
+
+    "size": [
+        ".size-chip-wrapper button[data-testid='ITOChip']"
+    ],
+
+    "soldout": {
+        "attribute": "aria-disabled",
+        "value": "true"
+    },
+
+    "image_main": [
+        "div.media-gallery--ec-renewal--grid img",
+        "div.ec__renewal__image-enhancements img"
+    ],
+
+    "image_feature": [
+        "div.fr-ec-desc-features__item-image img"
+    ],
+
+    "detail": {
+        "features": "div.fr-ec-desc-features__item-text p",
+        "spec": "section[data-test='overview-accordion'] div[data-test='overview-accordion-content']",
+        "material": "section[data-test='material-accordion'] dd.fr-definition-list-description"
+    }
+}

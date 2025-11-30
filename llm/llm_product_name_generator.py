@@ -1,8 +1,7 @@
 # product_name_llm.py
 
 import hashlib
-from llm.llm_client import request_llm
-from llm.llm_formatter import PRODUCT_NAME_PROMPT
+from llm.llm_client import request_llm, get_prompt
 
 
 def make_cache_key(url, primary_keywords, secondary_keywords):
@@ -15,9 +14,9 @@ def generate_product_name_from_llm(primary_keywords, secondary_keywords):
     p_kw = ", ".join(primary_keywords) if primary_keywords else ""
     s_kw = ", ".join(secondary_keywords) if secondary_keywords else ""
 
-    prompt = PRODUCT_NAME_PROMPT.format(
-        P_KEYWORDS=p_kw,
-        S_KEYWORDS=s_kw
+    prompt = get_prompt("NAME").format(
+        P_KEYWORDS=", ".join(p_kw),
+        S_KEYWORDS=", ".join(s_kw),
     )
 
     return request_llm(prompt)

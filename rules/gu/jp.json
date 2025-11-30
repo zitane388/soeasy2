@@ -1,0 +1,63 @@
+{
+    "color_url_template": "https://www.gu-global.com/jp/ja/products/{product_id}?colorDisplayCode={color_code}&sizeDisplayCode=004",
+
+    "product_name": [
+        "h1",
+        "meta[property='og:title']"
+    ],
+
+    "price": [
+        ".fr-ec-price-text",
+        ".fr-ec-price-text--large",
+        "[data-product-price-with-tax]",
+        "[data-product-price]",
+        ".price-text"
+    ],
+
+    "color": [
+        "button[data-testid='ITOChip']"
+    ],
+
+    "size": [
+        "div.size-chip-group button[data-testid='ITOChip']"
+    ],
+
+    "soldout": {
+        "attribute": "aria-disabled",
+        "value": "true"
+    },
+
+    "image_main": [
+        "div.media-gallery--grid div.media-enhancements img",
+        "div.media-gallery--grid video",
+        "div.media-gallery--grid source"
+    ],
+
+    "image_feature": [
+        ".image-plus-text__horizontal-large-media img",
+        ".product-feature-image img"
+    ],
+
+    "detail": {
+        "features": [
+            "#productFeatures ~ div p",
+            "#productFeatures + div p",
+            "#productFeatures-content p",
+            ".image-plus-text__horizontal-large-texts p"
+        ],
+        "spec": [
+            "#productLongDescription ~ div p",
+            "#productLongDescription + div p",
+            "#productLongDescription-content p"
+        ],
+        "material": [
+            "#productMaterialDescription ~ div p",
+            "#productMaterialDescription + div p",
+            "#productMaterialDescription-content p"
+        ],
+        "origin": [
+            "#productSustainabilityInfo ~ div p",
+            "#productSustainabilityInfo-content p"
+        ]
+    }
+}

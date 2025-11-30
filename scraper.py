@@ -97,8 +97,14 @@ def refine_lens_products(lens_products):
     print(f"[Step4] 한국어 원본 개수: {len(korean_orig)}")
     print(f"[Step4] 비한국어 원본 개수: {len(non_korean_orig)}")
 
+    # 🔥 한국어 포함된 항목들 → name 길이 기준 내림차순 정렬
+    korean_orig.sort(key=lambda x: len(x.get("name", "").strip()), reverse=True)
+
+    # 🔥 비한국어 항목도 동일하게 길이 기준 정렬해두면 품질↑
+    non_korean_orig.sort(key=lambda x: len(x.get("name", "").strip()), reverse=True)
+
     # ---------------------------------------------------------
-    # 5) TOP5 선정
+    # 5) 한국어 항목에서 TOP5 선정
     # ---------------------------------------------------------
     final = korean_orig[:5]
     print(f"[Step5] 한국어 원본 TOP5 개수: {len(final)}")
@@ -112,6 +118,7 @@ def refine_lens_products(lens_products):
         final.extend(non_korean_orig[:need])
 
     print("[Step6] 최종 항목 개수:", len(final))
+
 
     # ---------------------------------------------------------
     # 7) 한국어 아닌 항목만 번역 적용
@@ -296,4 +303,3 @@ class Scraper:
         print(json.dumps(final_output, ensure_ascii=False, indent=2))
 
         return final_output
-

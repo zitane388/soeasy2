@@ -2,82 +2,64 @@
 
 import os
 import json
+from urllib.parse import urlparse
 
 from .parser_jp import UniqloJapanParser
-from .parser_us import UniqloUsaParser
-from .parser_global import UniqloGlobalParser
+from .parser_vn import UniqloVietnamParser   # ★ 추가
 
-# ------------------------------------------------------------------
-# 브랜드/국가 상수
-# ------------------------------------------------------------------
-BRAND = "uniqlo"
-COUNTRY_JP = "jp"
-COUNTRY_US = "us"
-COUNTRY_GLOBAL = "global"
-
-# ------------------------------------------------------------------
-# 룰 파일 경로
-# ------------------------------------------------------------------
-RULES_DIR = os.path.join("rules", "uniqlo")
+BRAND = "유니클로"
 
 
 class UniqloParserManager:
-    """
-    유니클로 URL을 처리하여 국가별 파서를 반환하는 라우터
-    ParserManager → BrandParserManager → UniqloParserManager
-    구조 속에서 동작한다.
-    """
 
-    # --------------------------------------------------------------
-    # 해당 URL이 유니클로인지 확인
-    # --------------------------------------------------------------
+    # ---------------------------------------------
+    # Uniqlo URL 여부 판단
+    # ---------------------------------------------
     def match(self, url: str):
         return "uniqlo.com" in url.lower()
 
-    # --------------------------------------------------------------
+    # ---------------------------------------------
     # 국가별 파서 선택
-    # 항상 dict 형태로 반환
-    # --------------------------------------------------------------
+    # ---------------------------------------------
     def get_country_parser(self, url: str):
-        url_lower = url.lower()
-        print(f"[UniqloParserManager] URL 분석 → {url}")
+        parsed = urlparse(url)
+        path = parsed.path.lower()
 
-        # ==========================================================
-        # 일본 (JP)
-        # ==========================================================
-        if "uniqlo.com/jp" in url_lower:
-            print("[UniqloParserManager] JP 파서 선택")
-            return {
-                "parser": UniqloJapanParser(self._load_rules("jp.json")),
-                "brand": BRAND,
-                "country": COUNTRY_JP
-            }
+        # ------------------------------
+        # 일본 사이트
+        # ------------------------------
+        if "/jp/" in path:
+            return self._get("jp", UniqloJapanParser)
 
-        # ==========================================================
-        # 미국 (US)
-        # ==========================================================
-        if "uniqlo.com/us" in url_lower:
-            print("[UniqloParserManager] US 파서 선택")
-            return {
-                "parser": UniqloUsaParser(self._load_rules("us.json")),
-                "brand": BRAND,
-                "country": COUNTRY_US
-            }
+        # ------------------------------
+        # 베트남 사이트
+        # ------------------------------
+        if "/vn/" in path:
+            return self._get("vn", UniqloVietnamParser)
 
-        # ==========================================================
-        # 그 외 GLOBAL (기본값)
-        # ==========================================================
-        print("[UniqloParserManager] GLOBAL 파서 선택")
+        # ------------------------------
+        # 미매칭
+        # ------------------------------
+        print("[UniqloParserManager] 국가 매칭 실패 → None")
+        return None
+
+    # ---------------------------------------------
+    # 국가 공통 처리: rules + parser 묶어서 반환
+    # ---------------------------------------------
+    def _get(self, country_code, parser_cls):
+        rules = self._load_rules(f"{country_code}.json")
+        parser = parser_cls(rules)
+
         return {
-            "parser": UniqloGlobalParser(self._load_rules("global.json")),
+            "parser": parser,
             "brand": BRAND,
-            "country": COUNTRY_GLOBAL
+            "country": country_code
         }
 
-    # --------------------------------------------------------------
-    # 룰 파일 로드
-    # --------------------------------------------------------------
+    # ---------------------------------------------
+    # 규칙 파일 로드
+    # ---------------------------------------------
     def _load_rules(self, filename):
-        path = os.path.join(RULES_DIR, filename)
-        with open(path, encoding="utf-8") as f:
+        path = os.path.join("rules", "uniqlo", filename)
+        with open(path, "r", encoding="utf-8") as f:
             return json.load(f)

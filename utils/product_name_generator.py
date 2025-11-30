@@ -16,7 +16,7 @@ def collect_secondary_keywords(item):
     """
     2차 키워드 = 상세설명 텍스트 전체 → 공백 split
     """
-    txt = item.final_description or item.parsed_raw.get("description", "") or ""
+    txt = item.final_detail_text or item.parsed_raw.get("detail_text", "") or ""
     keywords = txt.replace("\n", " ").split()  # 공백 기준 split
     return keywords
 

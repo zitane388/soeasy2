@@ -59,38 +59,23 @@ def limit_length(text, max_len=20):
     return text[:max_len].rstrip()
 
 
-def normalize_size_chart(html: str) -> str:
-    """원본 HTML의 size table을 번역·정규화해서 반듯한 표로 재구성"""
-    if not html:
-        return ""
+def normalize_size_chart(headers, body_rows):
+    """
+    extract_raw_size_chart 에서 이미 분리된
+    headers, body_rows를 기반으로
+    번역 + 정규화된 표 HTML을 생성한다.
+    """
 
-    soup = BeautifulSoup(html, "html.parser")
-
-    table = soup.find("table")
-    if not table:
-        return ""
-
-    # ------------------------------------------
-    # 1) 테이블 전체 행·열 수집
-    # ------------------------------------------
-    rows = []
-    for tr in table.find_all("tr"):
-        cols = tr.find_all(["th", "td"])
-        cells = [clean_text(c.get_text(strip=True)) for c in cols]
-        if cells:
-            rows.append(cells)
-
-    if not rows or len(rows) < 2:
+    if not headers or not body_rows:
         return ""
 
     # ------------------------------------------
-    # 2) 첫 행 = 헤더 → 매핑 + 번역
+    # 1) 헤더 번역 (기존 로직 유지)
     # ------------------------------------------
-    raw_header = rows[0]
-    translated_header = [translate_header(h) for h in raw_header]
+    translated_header = [translate_header(h) for h in headers]
 
     # ------------------------------------------
-    # 3) 표 HTML 재구성
+    # 2) HTML 표 재구성 (기존 로직 유지)
     # ------------------------------------------
     html_rows = []
 
@@ -100,28 +85,30 @@ def normalize_size_chart(html: str) -> str:
         "".join([
             "<th style='border:2px solid #888;padding:10px;"
             "font-size:20px;font-weight:bold;text-align:center;"
-            "background:#f5f5f5;'>"
-            f"{h}</th>"
+            "background:#f5f5f5;'>" +
+            h +
+            "</th>"
             for h in translated_header
         ]) +
         "</tr>"
     )
 
     # BODY
-    for r in rows[1:]:
+    for row in body_rows:
         html_rows.append(
             "<tr>" +
             "".join([
                 "<td style='border:2px solid #ccc;padding:10px;"
-                "font-size:18px;text-align:center;'>"
-                f"{c}</td>"
-                for c in r
+                "font-size:18px;text-align:center;'>" +
+                col +
+                "</td>"
+                for col in row
             ]) +
             "</tr>"
         )
 
     # ------------------------------------------
-    # 4) 최종 HTML 반환
+    # 3) 최종 HTML 반환
     # ------------------------------------------
     final_html = f"""
     <div style="width:100%;margin-bottom:60px">
@@ -130,7 +117,9 @@ def normalize_size_chart(html: str) -> str:
         </table>
     </div>
     """
+
     return final_html.strip()
+
 
 
 # ============================================================
@@ -167,40 +156,64 @@ def render_description_section(title, lines):
     return "\n".join(html)
 
 
-def render_options_section(options):
+def render_options_section(option_groups):
     """
-    options = [{"name":..., "image":...}]
+    option_groups 형식:
+    [
+        {
+            "group_name": "색상",
+            "values": [
+                {"name": "...", "image": "..."},
+                ...
+            ]
+        }
+    ]
+
+    ※ 색상 그룹만 처리하며 타이틀은 출력하지 않음.
     """
-    if not options:
+
+    if not option_groups:
         return ""
 
-    rows = []
-    for opt in options:
-        image = opt.get("image", "")
-        name = opt.get("name", "")
+    html_parts = []
 
-        rows.append(f"""
-        <table border="1" style="border-collapse: collapse; width: 100%;">
-            <tbody>
+    for group in option_groups:
+        group_name = group.get("group_name", "")
+        values = group.get("values", [])
 
-                <tr>
-                    <td style="padding: 10px; text-align: center; width: 100%;">
-                        <img src="{image}"
-                             style="max-width: 100%; object-fit: contain;">
-                    </td>
-                </tr>
+        # 색상 그룹만 처리
+        if "색" not in group_name:
+            continue
 
-                <tr style="border-bottom: 3px double;">
-                    <td style="text-align: center; padding: 10px;">
-                        <strong style="font-size:1.2rem;">{name}</strong>
-                    </td>
-                </tr>
+        rows = []
+        for opt in values:
+            name = opt.get("name", "")
+            image = opt.get("image", "")
 
-            </tbody>
-        </table>
-        """)
+            rows.append(f"""
+            <table border="1" style="border-collapse: collapse; width: 100%; margin-bottom: 25px;">
+                <tbody>
 
-    return "\n".join(rows)
+                    <tr>
+                        <td style="padding: 10px; text-align: center; width: 100%;">
+                            <img src="{image}"
+                                 style="max-width: 100%; object-fit: contain;">
+                        </td>
+                    </tr>
+
+                    <tr style="border-bottom: 3px double;">
+                        <td style="text-align: center; padding: 10px;">
+                            <strong style="font-size: 1.2rem;">{name}</strong>
+                        </td>
+                    </tr>
+
+                </tbody>
+            </table>
+            """)
+
+        html_parts.append("\n".join(rows))
+
+    return "\n".join(html_parts)
 
 
 # ============================================================
@@ -231,7 +244,20 @@ def generate_detail_html(item):
     # B) 상품명 20자 축약
     # ----------------------------------------------------
     name_40 = getattr(item, "final_name", "") or ""
-    name_20 = limit_length(name_40, 20)
+    
+    # ----------------------------------------------------
+    # C) 영상 섹션 (다운로드/분석 X — 이미 준비된 mp4만 사용)
+    # ----------------------------------------------------
+    video_section = ""
+    if getattr(item, "video_file", None):
+        file_url = "file:///" + item.video_file.replace("\\", "/")
+        video_section = f"""
+        <div style="text-align:center; margin:40px 0;">
+            <video controls playsinline style="max-width:100%; height:auto;">
+                <source src="{file_url}" type="video/mp4">
+            </video>
+        </div>
+        """
 
     # ----------------------------------------------------
     # C) 상품 이미지
@@ -242,13 +268,12 @@ def generate_detail_html(item):
     # ----------------------------------------------------
     # D) 상품설명: 번역 + 요약
     # ----------------------------------------------------
-    detail_text = (item.final_description or "").replace("\n", "<br>")
+    detail_html = (item.final_detail_html or "").replace("\n", "<br>")
     # 줄바꿈 유지 + HTML 변환
-    if detail_text:
-        detail_text_html = detail_text.replace("\n", "<br>")
+    if detail_html:
         description_section = f"""
         <div style="text-align:center; line-height:1.7;margin-top:30px;margin-bottom:30px">
-            {detail_text_html}
+            {detail_html}
         </div>
         <div style="text-align:center"><br></div>
         <div style="text-align:center"><br></div>
@@ -259,8 +284,20 @@ def generate_detail_html(item):
     # ----------------------------------------------------
     # F) 옵션 섹션
     # ----------------------------------------------------
-    options = getattr(item, "options", []) or item.parsed_raw.get("colors", [])
-    options_section = render_options_section(options)
+    options = item.parsed_raw.get("options", [])
+    options_html = render_options_section(options)
+    
+    # 옵션 이미지 생성
+    if options_html.strip():
+        options_img_path = html_to_png_options(options_html)
+        item.options_image_path = options_img_path
+        options_section = f"""
+        <div style="text-align:center; margin:50px 0;">
+            <img src="{options_img_path}" style="max-width:100%; object-fit:contain;">
+        </div>
+        """
+    else:
+        options_section = ""
 
     # ----------------------------------------------------
     # G) BOTTOM_SECTION (사이즈표 HTML + bottom_image)
@@ -296,6 +333,7 @@ def generate_detail_html(item):
         template
         .replace("{{TOP_IMAGE}}", TOP_IMAGE)
         .replace("{{PRODUCT_NAME}}", name_40)
+        .replace("{{VIDEO_SECTION}}", video_section)
         .replace("{{PRODUCT_IMAGES}}", product_images_html)
         .replace("{{DESCRIPTION_SECTION}}", description_section)
         .replace("{{SIZE_CHART_SECTION}}", size_chart_section)
@@ -306,20 +344,91 @@ def generate_detail_html(item):
     return final_html.strip()
 
 
-def html_to_png_final(html: str, width=720, output_name="size_chart.png"):
-    """
-    HTML 문자열에서 불필요한 마진을 제거하고 <table> 요소만 PNG로 변환합니다.
+def html_to_png_options(options_html: str, width=720, output_name="options_section.png"):
+    import os, threading
+    from playwright.sync_api import sync_playwright
+
+    WINDLY_TEMP_DIR = os.path.join(os.getcwd(), "windly_temp")
+    if not os.path.exists(WINDLY_TEMP_DIR):
+        os.makedirs(WINDLY_TEMP_DIR)
+
+    # ★ HTML 경로 windly_temp
+    html_path = os.path.join(WINDLY_TEMP_DIR, "options_src.html")
+
+    full_html = f"""
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body {{
+            margin: 0;
+            padding: 0;
+            font-family: Arial, sans-serif;
+        }}
+      </style>
+    </head>
+    <body>
+      {options_html}
+    </body>
+    </html>
     """
 
-    temp_dir = tempfile.gettempdir()
-    html_path = os.path.join(temp_dir, "size_chart_temp.html")
-    png_path = os.path.join(temp_dir, output_name)
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(full_html)
 
-    # 1. HTML 문자열에서 문제가 되는 margin-bottom 스타일 제거
-    # 'margin-bottom:60px'를 찾아 'margin-bottom:0px'로 변경하거나 아예 제거합니다.
+    # PNG 덮어쓰기
+    png_path = os.path.join(WINDLY_TEMP_DIR, output_name)
+
+    # ★ screenshot 코드 건드리지 않음
+    result = {'path': None, 'error': None}
+
+    def worker():
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                page = browser.new_page(viewport={"width": width, "height": 1200})
+
+                page.goto("file:///" + html_path.replace("\\", "/"))
+                page.wait_for_load_state('domcontentloaded')
+
+                body = page.locator("body")
+                body.screenshot(path=png_path)
+
+                browser.close()
+
+            result['path'] = png_path.replace("\\", "/")
+        except Exception as e:
+            result['error'] = e
+
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+
+    if result['error']:
+        raise result['error']
+
+    return result['path']
+
+
+
+
+
+def html_to_png_final(html: str, width=720, output_name=None):
+    import os, threading, time
+    from playwright.sync_api import sync_playwright
+
+    WINDLY_TEMP_DIR = os.path.join(os.getcwd(), "windly_temp")
+    if not os.path.exists(WINDLY_TEMP_DIR):
+        os.makedirs(WINDLY_TEMP_DIR)
+
+    # ★ HTML을 temp 대신 windly_temp에 저장
+    html_path = os.path.join(
+        WINDLY_TEMP_DIR,
+        f"size_chart_src.html"   # 항상 같은 이름 → 덮어쓰기
+    )
+
     cleaned_html = html.replace('margin-bottom:60px', 'margin-bottom:0px')
-    
-    # 2. 전체 HTML 구조 생성
+
     full_html = f"""
     <html>
     <head>
@@ -341,26 +450,37 @@ def html_to_png_final(html: str, width=720, output_name="size_chart.png"):
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(full_html)
 
-    # 3. Playwright 실행
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        # 뷰포트 너비만 지정합니다. 높이는 요소 캡처 시 무시됩니다.
-        page = browser.new_page(viewport={"width": width, "height": 1000})
-        
-        page.goto("file:///" + html_path.replace("\\", "/"))
+    # PNG 이름은 고정(덮어쓰기)
+    if not output_name:
+        output_name = "size_chart.png"
 
-        page.wait_for_load_state('domcontentloaded')
+    png_path = os.path.join(WINDLY_TEMP_DIR, output_name)
 
-        # 4. <table> 요소만 정확히 타겟팅합니다.
-        # 이제 div에 불필요한 마진이 없으므로 깔끔하게 캡처됩니다.
-        table_element = page.locator('body > div > table')
+    # ★ 아래 screenshot 로직은 절대 건드리지 않음
+    result = {"path": None, "error": None}
 
-        # 스크린샷 캡처
-        table_element.screenshot(path=png_path)
-        
-        browser.close()
+    def worker():
+        try:
+            with sync_playwright() as p:
+                browser = p.chromium.launch()
+                page = browser.new_page(viewport={"width": width, "height": 2000})
+                page.goto("file:///" + html_path.replace("\\", "/"))
+                page.wait_for_load_state("domcontentloaded")
 
-    return png_path.replace("\\", "/")
+                table = page.locator("body table")
+                table.screenshot(path=png_path)
 
+                browser.close()
 
+            result["path"] = png_path.replace("\\", "/")
+        except Exception as e:
+            result["error"] = e
 
+    t = threading.Thread(target=worker)
+    t.start()
+    t.join()
+
+    if result["error"]:
+        raise result["error"]
+
+    return result["path"]

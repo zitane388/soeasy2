@@ -34,7 +34,9 @@ class UniqloJapanParser(BaseParser):
         # [NEW] 사이즈표 HTML 파싱
         # ---------------------------------------------------
         size_html_raw = self._parse_size_chart(soup)
-        size_html_final = normalize_size_chart(size_html_raw)
+
+        # 헤더/행 분리
+        headers, rows = self.extract_raw_size_chart(size_html_raw)
 
         # ① 색상 목록 파싱
         colors = self._parse_color_list(soup)
@@ -42,6 +44,8 @@ class UniqloJapanParser(BaseParser):
             
         # ② 상세설명 파싱 (메인 페이지 기준)
         detail_description = self._parse_detail_description(soup)
+        
+        video_url = self._parse_video(soup)
 
         # ③ 임시 구조 저장
         results = {
@@ -81,7 +85,6 @@ class UniqloJapanParser(BaseParser):
         # ------------------------------------------------------
         # 🔥 variants 기반 최종 병합 (정렬 그대로 유지)
         # ------------------------------------------------------
-
         merged_sizes = {}        
         merged_sizes_order = []  
 
@@ -190,23 +193,64 @@ class UniqloJapanParser(BaseParser):
                 "code": code,
                 "image": color_main_images.get(code)
             })
+            
+        # ------------------------------------------------------
+        # 🔥 옵션 그룹 생성 (표준 옵션 구조)
+        # ------------------------------------------------------
+        option_groups = []
+
+        # 1) 색상 그룹
+        if final_colors:
+            option_groups.append({
+                "group_name": "색상",
+                "values": [
+                    {
+                        "name": c["name"],
+                        "code": c.get("code"),
+                        "image": c.get("image"),
+                        "disabled": False
+                    }
+                    for c in final_colors
+                ]
+            })
+
+        # 2) 사이즈 그룹
+        if merged_sizes_order:
+            option_groups.append({
+                "group_name": "사이즈",
+                "values": [
+                    {
+                        "name": merged_sizes[name]["name"],
+                        "code": merged_sizes[name].get("code"),
+                        "disabled": merged_sizes[name].get("disabled", False)
+                    }
+                    for name in merged_sizes_order
+                ]
+            })
 
 
         # ------------------------------------------------------
         # 🔥 최종 구조 생성 (variants 제거)
         # ------------------------------------------------------
         final_results = {
-            "colors": final_colors,  # 대표 이미지 포함
+            "colors": final_colors,
             "prices": merged_prices,
             "sizes": [merged_sizes[name] for name in merged_sizes_order],
             "images": final_images,
             "detail_description": results["detail_description"],
-            "size_html": size_html_final
+            "size_html": size_html_raw,
+
+            # 🔥 표준 옵션 그룹
+            "options": option_groups,
+            
+            # 🔥 영상 URL (1개)
+            "video": video_url,
+            "size_headers_original": headers,
+            "size_rows_original": rows,
+            "size_html_raw": size_html_raw
         }
 
         return final_results
-
-
 
     # ------------------------------------------------------
     # 1) 색상 목록 파싱
@@ -254,6 +298,26 @@ class UniqloJapanParser(BaseParser):
                 if txt:
                     return txt
         return ""
+    
+    def _parse_video(self, soup):
+        """
+        유니클로 상품 상세에 포함된 영상 <video> 태그에서
+        data-src 또는 src URL 하나만 찾아서 반환
+        """
+        video_tag = soup.find("video")
+        if not video_tag:
+            return None
+
+        url = video_tag.get("data-src") or video_tag.get("src")
+        if not url:
+            return None
+
+        if not url.startswith("http"):
+            return None
+
+        # 영상은 쿼리스트링 유지해야 HLS 정보가 살아있음
+        return url
+
 
     # ------------------------------------------------------
     # 이미지 파싱 (메인 + feature)
@@ -400,5 +464,28 @@ class UniqloJapanParser(BaseParser):
             return str(fallback)
 
         return ""
+    
+    def extract_raw_size_chart(self, html: str):
+        """ size_html_raw 에서 원본 헤더/행을 분리하여 반환 """
+        if not html:
+            return [], []
 
+        soup = BeautifulSoup(html, "html.parser")
+        table = soup.find("table")
+        if not table:
+            return [], []
 
+        rows = []
+        for tr in table.find_all("tr"):
+            cols = tr.find_all(["th", "td"])
+            cells = [c.get_text(strip=True) for c in cols]
+            if cells:
+                rows.append(cells)
+
+        if not rows or len(rows) < 2:
+            return [], []
+
+        headers = rows[0]
+        body_rows = rows[1:]
+
+        return headers, body_rows

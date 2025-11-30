@@ -99,6 +99,14 @@ class NaverApiClient:
             resp.raise_for_status()
         except Exception as e:
             print("[ERROR] 네이버 API 오류:", resp.text)
+            print("\n================ NEAVER API ERROR ================\n")
+            print("URL:", url)
+            print("METHOD:", method)
+            print("STATUS:", resp.status_code)
+            print("RESPONSE TEXT:", resp.text)
+            print("REQUEST BODY:", data)   # ← 네이버에 보낸 전체 body
+            print("\n==================================================\n")
+            raise
             raise e
 
         return resp.json()
