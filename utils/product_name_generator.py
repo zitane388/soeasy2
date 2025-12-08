@@ -1,42 +1,34 @@
-# utils/product_name_generator.py
+from llm.llm_product_name_generator import (
+    generate_product_name_from_llm,
+    generate_product_name_from_llm_with_image,
+)
 
-from llm.llm_product_name_generator import generate_product_name_from_llm
-
-def collect_primary_keywords(item):
+def generate_final_name(translated_name: str, keyword_list: list[str], image_url: str = None) -> str:
     """
-    1차 키워드 = 옵션 name 전체 → 공백 split
+    translated_name : 일본어/영어 → 한국어 번역된 상품명
+    keyword_list    : 후보 키워드 리스트
+    image_url       : 선택된 대표 이미지의 URL (http로 시작하는 주소)
     """
-    opts = getattr(item, "options", []) or item.parsed_raw.get("colors", [])
-    joined = " ".join([o.get("name", "") for o in opts if o.get("name")])
-    keywords = joined.split()  # ← 공백 기준 split
-    return keywords
 
+    if not translated_name or not keyword_list:
+        print("[SKIP] 상품명 생성 불가 - 번역명 또는 키워드 없음")
+        return ""
 
-def collect_secondary_keywords(item):
-    """
-    2차 키워드 = 상세설명 텍스트 전체 → 공백 split
-    """
-    txt = item.final_detail_text or item.parsed_raw.get("detail_text", "") or ""
-    keywords = txt.replace("\n", " ").split()  # 공백 기준 split
-    return keywords
+    # 1) 이미지 있으면 → Vision 버전
+    if image_url and image_url.startswith("http"):
+        print(f"[LLM] 상품명 생성 시작 (Vision) → {translated_name}")
+        result = generate_product_name_from_llm_with_image(
+            product_name = translated_name,
+            keywords     = keyword_list,
+            image_url    = image_url,   # 🔥 여기서는 'URL' 그대로 전달
+        )
+    else:
+        # 2) 이미지 없으면 → 텍스트-only
+        print(f"[LLM] 상품명 생성 시작 (Text) → {translated_name}")
+        result = generate_product_name_from_llm(
+            product_name = translated_name,
+            keywords     = keyword_list,
+        )
 
-
-def generate_final_name_once(item):
-    """
-    상품명이 없으면 최초 1회 자동 생성
-    """
-    if item.final_name:
-        return
-
-    p_keywords = collect_primary_keywords(item)
-    s_keywords = collect_secondary_keywords(item)
-
-    info = {
-        "primary_keywords": p_keywords,
-        "secondary_keywords": s_keywords,
-        "url": item.url,
-    }
-
-    print(f"[LLM] 상품명 생성 시작 → {item.url}")
-    item.final_name = generate_product_name_from_llm(info)
-    print(f"[LLM] 상품명 생성 완료:", item.final_name)
+    print(f"[LLM] 상품명 생성 완료:", result)
+    return result

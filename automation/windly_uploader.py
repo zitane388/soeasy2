@@ -121,9 +121,20 @@ class WindlyUploader:
 
     # --------------------------------------------------------
     def goto_interest_page(self):
-        self.page.goto(WINDLY_INTEREST_URL)
-        self.page.wait_for_load_state("domcontentloaded")
-        time.sleep(1)
+        for attempt in range(3):
+            try:
+                self.page.goto(WINDLY_INTEREST_URL, wait_until="domcontentloaded", timeout=90000)
+
+                # URL이 목적지와 동일하면 성공
+                if WINDLY_INTEREST_URL in self.page.url:
+                    print("[Windly] Interested 상품 페이지 연결 완료")
+                    return
+            except:
+                print(f"[WARN] 이동 실패 -> 재시도 {attempt+1}/3")
+
+            time.sleep(3)
+
+        print("[ERROR] Windly 상품 페이지 진입 완전 실패")
 
     # --------------------------------------------------------
     def prepare(self):
@@ -165,6 +176,50 @@ class WindlyUploader:
                 return True
 
         return False
+    
+    # ============================================================
+    # 🔥 원본 상품 링크 수정 메소드 (popup → url 입력 → 저장)
+    # ============================================================
+    def update_original_url(self, url: str):
+        print("[Windly] 상품 원본 URL 수정 시작")
+
+        # 더보기 버튼
+        self.page.locator("button.secondary.css-1k9mhp9.e2kkri01").click()
+        time.sleep(0.8)
+
+        # '상품 링크 수정' 버튼 (2번째)
+        self.page.locator("div.css-7w0ojd.e10da43g1 button").nth(1).click()
+        time.sleep(1)
+
+        # 원본 URL 입력란
+        input_box = self.page.locator("input[placeholder='새 링크를 입력해주세요']")
+        input_box.fill("")
+        input_box.type(url)
+        time.sleep(0.6)
+
+        # 🔥 저장 버튼(텍스트 기반 단일 식별)
+        self.page.get_by_role("button", name="저장하기").click()
+
+        print(f"[Windly] 원본 주소 업데이트 완료 → {url}")
+        time.sleep(1.5)
+        
+    def apply_price_save(self):
+        print("[Windly] 판매가 탭 이동 및 저장 시작")
+
+        # 🔥 '판매가' 탭 클릭 (텍스트 기반 접근)
+        self.page.get_by_role("button", name="판매가").click()
+        time.sleep(1.5)
+
+        # 🔥 '상품 판매가 변경' 버튼 클릭
+        self.page.get_by_role("button", name="상품 판매가 변경").click()
+        time.sleep(2)  # 팝업/입력창 로딩 대기
+
+        # 🔥 저장 버튼 클릭 (color=blue / primary만 선택)
+        self.page.locator("button.primary.css-o5l8yh.e2kkri01:has-text('저장')").click()
+
+        print("[Windly] 판매가 저장 완료")
+        time.sleep(1)
+
 
     # --------------------------------------------------------
     def open_detail_editor(self):
@@ -188,14 +243,11 @@ class WindlyUploader:
     # --------------------------------------------------------
     def download_temp_images(self, urls):
         files = []
-        for url in urls:
+        for idx, url in enumerate(urls):
             r = requests.get(url, timeout=5)
 
-            ext = ".jpg"
-            path = os.path.join(
-                self.windly_temp_path,
-                f"windly_img_{int(time.time() * 1000)}_{os.path.basename(url)}"
-            )
+            filename = f"{idx:03d}_{os.path.basename(url)}"
+            path = os.path.join(self.windly_temp_path, filename)
 
             with open(path, "wb") as f:
                 f.write(r.content)
@@ -203,6 +255,7 @@ class WindlyUploader:
             files.append(path)
 
         return files
+
     
     def cleanup_windly_temp(self):
         try:
@@ -213,113 +266,101 @@ class WindlyUploader:
         except Exception as e:
             print(f"[WARN] windly_temp 정리 오류: {e}")
 
-    # --------------------------------------------------------
-    # Windly 입력
-    # --------------------------------------------------------
     def run_for_item(self, item):
-    
-        final_name = getattr(item, "final_name", None)
-        if not final_name or not final_name.strip():
-            print("[Windly] final_name 없음 → 해당 상품 스킵")
-            return
+        try:
+            # 🚀 브라우저 새 실행
+            self.p = sync_playwright().start()
+            self.browser = self.p.chromium.launch(headless=False)
+            self.page = self.browser.new_page()
 
-        # ------------------------------------------
-        # STEP 0: 영상 파일 생성 (필요 시)
-        # ------------------------------------------
-        # if item.video_url:
-        #     from utils.video_utils import download_and_convert_video
-        #     mp4_path = download_and_convert_video(item.video_url)
-        #     if mp4_path:
-        #         item.video_file = mp4_path
-        #     else:
-        #         item.video_file = None
-        # else:
-        #     item.video_file = None
+            # 로그인 + 관심상품 페이지 진입
+            self.page.goto(WINDLY_LOGIN_URL)
+            self.page.fill("input[name='email']", self.user_id)
+            self.page.fill("input[name='password']", self.user_pw)
+            self.page.click("button[type='submit']")
+            time.sleep(2)
 
-        # 1) 태그 선택
-        if not self.select_tag(item.final_name):
-            print("[Windly] 태그 선택 실패 → 상품 스킵")
-            return
-        self.open_detail_editor()
+            self.page.goto(WINDLY_INTEREST_URL, wait_until="domcontentloaded", timeout=90000)
+            print("[Windly] 페이지 연결 완료")
 
-        # 2) 에디터 확보
-        editor = self.page.locator("div.ql-editor")
-        editor.wait_for(state="visible")
+            # ---------------- 상품 입력 프로세스 -----------------
+            if not item.final_name:
+                return False
+                
+            # ① 검색 → 카드 클릭
+            if not self.select_tag(item.final_name):
+                print("[Windly] 태그 매칭 실패 → 스킵")
+                return False
+            time.sleep(1)
 
-        # 3) 기존 내용 삭제
-        self.clear_editor()
-
-        # ------------------------------------------
-        # STEP 1: 상품명 텍스트
-        # ------------------------------------------
-        copy_text(item.final_name)
-        editor.click()
-        self.move_cursor_to_bottom()
-        self.page.keyboard.press("Control+V")
-        time.sleep(1)
-
-        self.page.keyboard.down("Control")
-        self.page.keyboard.press("A")
-        self.page.keyboard.up("Control")
-
-        self.apply_font_large()
-
-        self.page.keyboard.press("End")
-        self.page.keyboard.press("Enter")
-        self.page.keyboard.press("Enter")
+            # ② 원본URL 업데이트
+            self.update_original_url(item.url)
             
-        # ------------------------------------------
-        # STEP 3: 상품 이미지
-        # ------------------------------------------
-        print("[Windly] 상품이미지 입력 (CF_HDROP)")
+            # ②-1 판매가 저장 진행
+            self.apply_price_save()
 
-        temp_files = self.download_temp_images(item.parsed_raw.get("images", []))
+            # ③ 상세페이지 편집창
+            self.open_detail_editor()
+            editor = self.page.locator("div.ql-editor")
+            editor.wait_for(state="visible")
 
-        copy_files_to_clipboard(temp_files)
+            # ④ 내용 초기화 → 상품명 입력
+            self.clear_editor()
+            copy_text(item.final_name)
+            editor.click()
+            self.move_cursor_to_bottom()
+            self.page.keyboard.press("Control+V")
+            time.sleep(1)
+            self.apply_font_large()
+            self.page.keyboard.press("Enter")
+            self.page.keyboard.press("Enter")
 
-        editor.click()
-        self.move_cursor_to_bottom()
-        self.page.keyboard.press("Control+V")
-        time.sleep(3)
+            # ⑤ 상품 이미지 입력
+            print("[Windly] 이미지 업로드 시작")
+            imgs = self.download_temp_images(item.parsed_raw.get("images", []))
+            copy_files_to_clipboard(imgs)
+            editor.click()
+            self.move_cursor_to_bottom()
+            self.page.keyboard.press("Control+V")
+            time.sleep(2)
 
-        self.move_cursor_to_bottom()
-
-        # ------------------------------------------
-        # STEP 4: 상세설명 텍스트
-        # ------------------------------------------
-        desc = item.final_detail_text or ""
-        copy_text(desc)
-
-        editor.click()
-        self.move_cursor_to_bottom()
-        self.page.keyboard.press("Control+V")
-        time.sleep(1.2)
-
-        # ------------------------------------------
-        # STEP 5: 사이즈표 이미지
-        # ------------------------------------------
-        if item.size_chart_image_path:
-            copy_image_file(item.size_chart_image_path)
+            # ⑥ 상세설명
+            copy_text(item.final_detail_text or "")
             editor.click()
             self.move_cursor_to_bottom()
             self.page.keyboard.press("Control+V")
             time.sleep(1)
 
-            self.page.keyboard.press("Enter")
-            self.page.keyboard.press("Enter")
+            # ⑦ 사이즈표
+            if item.size_chart_image_path:
+                copy_image_file(item.size_chart_image_path)
+                editor.click()
+                self.move_cursor_to_bottom()
+                self.page.keyboard.press("Control+V")
+                self.page.keyboard.press("Enter")
 
-        # ------------------------------------------
-        # STEP 6: 옵션 이미지
-        # ------------------------------------------
-        if item.options_chart_path:
-            copy_image_file(item.options_chart_path)
-            editor.click()
-            self.move_cursor_to_bottom()
-            self.page.keyboard.press("Control+V")
-            time.sleep(1)
+            # ⑧ 옵션표
+            if item.options_chart_path:
+                copy_image_file(item.options_chart_path)
+                editor.click()
+                self.move_cursor_to_bottom()
+                self.page.keyboard.press("Control+V")
 
-        time.sleep(3)
-        print("===== Windly 입력 완료 =====")
+            print("===== Windly 입력 완료 =====")
+            return True
 
-        # windly_temp 폴더 정리
-        self.cleanup_windly_temp()
+        except Exception as e:
+            print("[WINDLY ERROR]", e)
+            return False
+
+        finally:
+            # 상품 1개 종료시 확실하게 브라우저 정리
+            try:
+                if hasattr(self, "page") and self.page: self.page.close()
+                if hasattr(self, "browser") and self.browser: self.browser.close()
+                if hasattr(self, "p") and self.p: self.p.stop()
+            except:
+                pass
+
+            print("[Windly] 세션 종료 완료")
+            self.cleanup_windly_temp()

@@ -4,13 +4,13 @@ from tkinter import ttk, messagebox
 import requests
 from PIL import Image, ImageTk
 import io, os, tempfile, subprocess
-import threading, time, json
+import threading, time, json, urllib
 import base64
 from websocket import create_connection
 from datetime import datetime
 
 from models import ProductItem
-from scraper import Scraper
+from scrapers.scraper_manager import ScraperManager
 from utils.detail_description_generator import generate_detail_html
 
 
@@ -117,7 +117,7 @@ class ProductCollectorGUI:
         self.root.title("Soeasy2 상품 수집기")
 
         # Scraper
-        self.scraper = Scraper()
+        self.scraper = ScraperManager()
 
         # 데이터 저장
         self.products_pending = []        # 탭1 (수집대기)
@@ -133,11 +133,15 @@ class ProductCollectorGUI:
     # ==============================================================
     def build_ui(self):
         
-        self.root.grid_rowconfigure(0, weight=1)
-        self.root.grid_columnconfigure(0, weight=1)
+        # 📌 전역 진행상황 라벨 (모든 탭에서 사용 가능)
+        self.upload_status_label_global = ttk.Label(
+            self.root, text="대기중", foreground="blue", font=("맑은 고딕", 11)
+        )
+        self.upload_status_label_global.pack(anchor="ne", pady=3, padx=10)
 
+        # 📌 Notebook → grid 삭제, pack으로 교체
         self.nb = ttk.Notebook(self.root)
-        self.nb.grid(row=0, column=0, sticky="nsew")
+        self.nb.pack(fill="both", expand=True)     # ← 여기만 바뀌면 해결
 
         # 탭 생성
         self.tab_pending = ttk.Frame(self.nb)
@@ -180,73 +184,153 @@ class ProductCollectorGUI:
         self.collected_frame = ttk.Frame(self.tab_collected)
         self.collected_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
-        # -------------------------
-        # 상단 헤더 (버튼 영역)
-        # -------------------------
+        # ------------------------------------------------
+        # 상단 헤더 + 상태 라벨 (공용)
+        # ------------------------------------------------
         header = ttk.Frame(self.collected_frame)
         header.pack(fill="x", pady=5)
 
-        def upload_to_naver():
+        # ==========================================================
+        # 🔹 네이버 업로드 Thread
+        # ==========================================================
+        def upload_to_naver_thread():
+    
             from naver_uploader import NaverUploader
             uploader = NaverUploader()
-            uploader.run(self.products_collected)
 
-        ttk.Button(
-            header,
-            text="네이버 상품등록",
-            command=upload_to_naver
-        ).pack(side="left", padx=10)
-        
+            total = len(self.products_collected)
+            if total == 0:
+                messagebox.showwarning("알림", "등록할 상품이 없습니다.")
+                return
+
+            success = 0
+            failed = []
+
+            self.upload_status_label_global.config(text=f"네이버 등록: 0/{total} 시작")
+
+            for item in self.products_collected:
+                try:
+                    ok = uploader.run_for_item(item)
+
+                    # <<< 🔥 여기서 상태 업데이트
+                    item.naver_status = "성공" if ok else "실패"
+                    self.refresh_tab_collected()
+
+                    if ok:
+                        success += 1
+                        self.upload_status_label_global.config(text=f"네이버 등록: {success}/{total} 진행중")
+                    else:
+                        failed.append(item.final_name or item.url)
+                        self.upload_status_label_global.config(
+                            text=f"네이버 등록: {success}/{total} 진행중 (실패 {len(failed)})"
+                        )
+
+                except Exception as e:
+                    item.naver_status = "실패"   # 예외 발생도 실패 처리
+                    failed.append(item.final_name or item.url)
+                    print("[NAVER UPLOAD ERROR]", e)
+                    self.upload_status_label_global.config(
+                        text=f"네이버 등록: {success}/{total} 진행중 (실패 {len(failed)})"
+                    )
+
+                self.root.update_idletasks()
+                time.sleep(0.35)
+
+            # 결과 팝업
+            fail_count = len(failed)
+            messagebox.showinfo(
+                "네이버 업로드 결과",
+                f"총 {total}개 중 {success}개 완료\n실패 {fail_count}개\n"
+            )
+            self.upload_status_label_global.config(text=f"네이버 등록 완료: {success}/{total}, 실패 {fail_count}")
+            
+            self.refresh_tab_collected()
+
+
+        def upload_to_naver():
+            threading.Thread(target=upload_to_naver_thread, daemon=True).start()
+
+
+        ttk.Button(header, text="네이버 상품등록", command=upload_to_naver).pack(side="left", padx=10)
+
+
+        # ==========================================================
+        # 🔹 Windly Thread (공용 라벨 사용)
+        # ==========================================================
         def open_windly_thread():
             from automation.windly_uploader import WindlyUploader
             from automation.windly_config_loader import load_windly_config
 
-            # 1) Windly 설정 파일 로딩
             user_id, user_pw = load_windly_config()
 
-            # 2) Uploader 생성
-            uploader = WindlyUploader(
-                user_id=user_id,
-                user_pw=user_pw
-            )
+            total = len(self.products_collected)
+            if total == 0:
+                messagebox.showwarning("알림", "윈들리에 입력할 상품이 없습니다.")
+                return
 
-            print("[Windly] 브라우저 준비 중...")
-            uploader.prepare()
+            success = 0
+            failed = []
 
-            # 3) 전체 상품 반복 처리
+            self.upload_status_label_global.config(text=f"윈들리 입력: 0/{total} 시작")
+
             for item in self.products_collected:
-                print(f"[Windly] 처리 중 → {item.final_name}")
-                uploader.run_for_item(item)
 
-            print("[Windly] 모든 상품 Windly 상세페이지 열기 완료")
+                uploader = WindlyUploader(user_id, user_pw)
+
+                try:
+                    ok = uploader.run_for_item(item)
+
+                    # <<< 🔥 여기서 상태 업데이트
+                    item.windly_status = "성공" if ok else "실패"
+                    self.refresh_tab_collected()
+
+                    if ok:
+                        success += 1
+                        self.upload_status_label_global.config(text=f"윈들리 입력: {success}/{total} 진행중")
+                    else:
+                        failed.append(item.final_name or item.url)
+                        self.upload_status_label_global.config(
+                            text=f"윈들리 입력: {success}/{total} 진행중 (실패 {len(failed)})"
+                        )
+
+                except Exception as e:
+                    item.windly_status = "실패"
+                    failed.append(item.final_name or item.url)
+                    print("[WINDLY ERROR]", e)
+                    self.upload_status_label_global.config(
+                        text=f"윈들리 입력: {success}/{total} 진행중 (실패 {len(failed)})"
+                    )
+
+                time.sleep(0.4)
+
+            fail_count = len(failed)
+            messagebox.showinfo("윈들리 입력 완료", f"총 {total} 중 {success} 성공 / {fail_count} 실패")
+            self.upload_status_label_global.config(text=f"윈들리 완료: {success}/{total}, 실패 {fail_count}")
 
 
-        def open_windly():
-            import threading
+
+        ttk.Button(header, text="윈들리 정보입력", command=lambda:
             threading.Thread(target=open_windly_thread, daemon=True).start()
-
-
-        ttk.Button(
-            header, 
-            text="윈들리 정보입력",
-            command=open_windly
         ).pack(side="left", padx=10)
 
 
-        # -------------------------
-        # 리스트 컨테이너 (여기만 refresh)
-        # -------------------------
+        # 리스트 UI
         self.list_container = ttk.Frame(self.collected_frame)
         self.list_container.pack(fill="both", expand=True)
-
         self.refresh_tab_collected()
+
         
     def match_category_action(self, item):
         from category_matcher import CategoryMatcher
-        name = item.final_name
+
+        # ⭐ UI 입력값을 직접 가져오기
+        name = self.final_name_text.get("1.0", "end").strip()
+
         if not name:
-            messagebox.showerror("오류", "먼저 상품명을 생성하세요.")
+            messagebox.showerror("오류", "최종 상품명이 입력되어 있지 않습니다.")
             return
+
+        # 카테고리 매칭 실행
         result = CategoryMatcher.match(name)  # "50002801 | 패션의류 > 여성의류 > 바지"
         print("[GUI] 카테고리 매칭 결과:", result)
 
@@ -259,17 +343,18 @@ class ProductCollectorGUI:
             code = ""
             category_path = result
 
-        # ProductItem에 저장
+        # ProductItem에 반영
         item.category_code = code
         item.category_name = category_path
-        
+
+        # GUI 반영
         if code:
             new_text = f"카테고리: {category_path} ({code})"
         else:
             new_text = f"카테고리: {category_path}"
 
-        # GUI 라벨 업데이트
         self.category_result_label.config(text=new_text)
+
 
     # ==============================================================
     def update_tab_titles(self):
@@ -285,89 +370,107 @@ class ProductCollectorGUI:
             w.destroy()
 
         for item in self.products_pending:
+
             row = ttk.Frame(self.pending_frame)
-            row.pack(fill="x", pady=4)
+            row.pack(fill="x", pady=6)
 
-            # ─────────────────────────────────────
-            # 1) URL (왼쪽 정렬)
-            # ─────────────────────────────────────
-            url_label = ttk.Label(row, text=item.url)
-            url_label.grid(row=0, column=0, sticky="w", padx=(0, 10))
+            # ================= 왼쪽 텍스트 묶음 =================
+            text_frame = ttk.Frame(row)
+            text_frame.pack(side="left", fill="x", expand=True)
 
-            # ─────────────────────────────────────
-            # 2) 추가한 날짜·시간 (오른쪽)
-            # ─────────────────────────────────────
-            time_label = ttk.Label(row, text=item.added_at)
-            time_label.grid(row=0, column=1, sticky="e", padx=(0, 6))
+            # URL (첫 줄)
+            ttk.Label(text_frame, text=item.url, font=("맑은 고딕", 10, "bold")).pack(anchor="w")
 
-            # ─────────────────────────────────────
-            # 3) 삭제 버튼 (오른쪽, 시간 오른쪽에 딱 붙음)
-            # ─────────────────────────────────────
-            delete_btn = ttk.Button(
-                row, text="삭제",
-                command=lambda p=item: self.delete_pending(p)
-            )
-            delete_btn.grid(row=0, column=2, sticky="e")
+            # 상태 (둘째 줄)
+            status = "완료" if item in self.products_collected else "대기"
+            clr = "green" if status == "완료" else "gray"
 
-            # 🔥 오른쪽 정렬을 제대로 유지하려면 col1·col2에 weight를 줘야 함
-            row.grid_columnconfigure(0, weight=1)
-            row.grid_columnconfigure(1, weight=0)
-            row.grid_columnconfigure(2, weight=0)
-            
+            ttk.Label(text_frame, text=f"수집: {status}", foreground=clr)\
+                .pack(anchor="w", pady=(1,0))
+
+
+            # ================= 오른쪽 : (시간 → 삭제 순) =================
+            side = ttk.Frame(row)
+            side.pack(side="right")
+
+            # 🔥 시간 — 삭제 버튼 왼쪽
+            ttk.Label(side, text=item.added_at, foreground="#666")\
+                .pack(side="left", padx=(0,10))
+
+            ttk.Button(side, text="삭제", command=lambda p=item: self.delete_pending(p))\
+                .pack(side="left")
+
+
         self.update_tab_titles()
+
 
     # ==============================================================
     # 탭2 새로고침 (썸네일 캐싱 적용)
     # ==============================================================
     def refresh_tab_collected(self):
-    
-        # header는 냅두고, list_container만 깔끔히 초기화
+        
         for w in self.list_container.winfo_children():
             w.destroy()
 
-        # 상품 리스트 구성
         for item in self.products_collected:
 
             row = ttk.Frame(self.list_container)
             row.pack(fill="x", pady=7)
 
-            # 썸네일
+            # ================= 썸네일 =================
             thumb_label = ttk.Label(row, text="[로딩중]")
             thumb_label.pack(side="left", padx=5)
 
             if item.thumbnail_url:
                 def cb(img, lbl=thumb_label):
                     if img:
-                        lbl.configure(image=img, text="")
-                        lbl.image = img
+                        lbl.configure(image=img, text=""); lbl.image = img
                     else:
                         lbl.configure(text="[이미지 오류]")
-
                 load_image_async(item.thumbnail_url, (80,80), cb, self.root, disable_cache=True)
             else:
                 thumb_label.configure(text="[이미지 없음]")
 
-            # 텍스트 영역
+            # ================= 텍스트 =================
             text_frame = ttk.Frame(row)
             text_frame.pack(side="left", fill="x", expand=True)
 
-            name_txt = item.final_name if item.final_name else "(상품명 미정)"
-            desc_txt = item.final_detail_text if item.final_detail_text else "(상세설명 미정)"
+            name_txt = item.final_name or "(상품명 미정)"
+            desc_txt = item.final_detail_text or "(상세설명 미정)"
 
-            ttk.Label(text_frame, text=name_txt).pack(anchor="w")
-            ttk.Label(text_frame, text=desc_txt[:80] + "...").pack(anchor="w")
-            
+            ttk.Label(text_frame, text=name_txt, font=("맑은 고딕", 10, "bold")).pack(anchor="w")
+
+            short_desc = desc_txt.replace("\n", " ")
+            if len(short_desc) > 40:
+                short_desc = short_desc[:40] + "..."
+
+            ttk.Label(text_frame, text=short_desc, foreground="#444").pack(anchor="w", fill="x")
+
+            # ================= 🔥 상태별 색상 개별 적용 =================
+            # item.naver_status / item.windly_status 값: "성공" / "실패" / "미등록"
+
+            def color(v):
+                return "green" if v=="성공" else ("red" if v=="실패" else "gray")
+
+            n_status = getattr(item, "naver_status", "미등록")
+            w_status = getattr(item, "windly_status", "미등록")
+
+            status_row = ttk.Frame(text_frame)
+            status_row.pack(anchor="w", pady=(3,0))
+
+            ttk.Label(status_row, text=f"네이버: {n_status}", foreground=color(n_status)).pack(side="left", padx=(0,15))
+            ttk.Label(status_row, text=f"윈들리: {w_status}", foreground=color(w_status)).pack(side="left")
+
+            # ================= 버튼 =================
             ttk.Button(row, text="삭제",
                     command=lambda p=item: self.delete_collected(p)
                     ).pack(side="right", padx=5)
-            
-            # 상세보기 버튼을 나중에
+
             ttk.Button(row, text="상세보기",
                     command=lambda p=item: self.open_detail(p)
                     ).pack(side="right", padx=5)
 
         self.update_tab_titles()
-
 
 
     
@@ -472,59 +575,6 @@ class ProductCollectorGUI:
             tk.messagebox.showerror("오류", f"Chrome 미리보기 실행 실패\n\n{e}")
 
 
-
-    def generate_product_name_action(self, item):
-        try:
-            raw_p_keywords = []
-            for p in item.lens_products:
-                name = p.get("name")
-                if name:
-                    raw_p_keywords.append(name)
-
-            # 단어 단위로 분해 + 불필요한 문자 제거
-            p_keywords = []
-            for text in raw_p_keywords:
-                # 개행 제거 + split
-                words = text.replace("\n", " ").split()
-                for w in words:
-                    # 특수문자 제거
-                    w = w.strip().strip(".,()[]“”\"'")
-                    # 너무 짧은 단어 제거 (예: ‘에’, ‘이’, ‘및’ 등)
-                    if len(w) <= 1:
-                        continue
-                    p_keywords.append(w)
-            
-            p_keywords = list(dict.fromkeys(p_keywords))
-
-            # 2) 2차 키워드 생성 (상세설명 기반)
-            desc = item.final_detail_text or item.parsed_raw.get("detail_text") or ""
-            s_keywords = desc.replace("\n", " ").split()
-            
-            # 🔥 1차 / 2차 키워드 출력
-            print("========== 상품명 생성 키워드 ==========")
-            print("[1차 키워드]", p_keywords)
-            print("[2차 키워드]", s_keywords)
-            print("=======================================")
-
-            # 3) LLM 요청
-            from llm.llm_product_name_generator import generate_product_name_from_llm
-
-            final_name = generate_product_name_from_llm(
-                primary_keywords=p_keywords,
-                secondary_keywords=s_keywords
-            )
-
-            # 4) 최종 상품명 입력란에 출력
-            self.lens_final_name_text.delete("1.0", tk.END)
-            self.lens_final_name_text.insert(tk.END, final_name)
-            
-            item.final_name = final_name
-
-        except Exception as e:
-            print("[상품명 생성 실패]", e)
-
-
-
     # =====================================================================
     # 상세보기 (즉시열림 + 4컬럼 + 캐싱 + 비동기 이미지 로딩 + 정렬/삭제)
     # =====================================================================
@@ -533,14 +583,39 @@ class ProductCollectorGUI:
         print("[DETAIL] 상세보기 클릭됨")
         print("========================")
         
+        # ========== Toast UI 먼저 함수로 추가 ==========
+        def toast(msg, parent, duration=2000):
+            win = tk.Toplevel(parent)
+            win.overrideredirect(True)
+            win.attributes("-topmost", True)
+
+            label = tk.Label(win, text=msg, bg="#333", fg="white",
+                            font=("맑은 고딕", 11), padx=16, pady=8)
+            label.pack()
+
+            parent.update_idletasks()
+            px = parent.winfo_rootx()
+            py = parent.winfo_rooty()
+            pw = parent.winfo_width()
+            ph = parent.winfo_height()
+
+            win.update_idletasks()
+            ww = win.winfo_width()
+            wh = win.winfo_height()
+
+            win.geometry(f"{ww}x{wh}+{px+pw//2-ww//2}+{py+ph//2-wh//2}")
+            win.after(duration, win.destroy)
+        
         # 1) Toplevel 생성 직전
         print("[DETAIL] Toplevel 생성 시작")
         win = tk.Toplevel(self.root)
+        self.detail_win = win
+        self.detail_win.update() 
         
         print("[DETAIL] Toplevel 생성 완료")
         
         win.title("상품 상세정보")
-        win.geometry("1500x900")
+        win.geometry("1600x900")
         win.configure(bg="#f7f7f7")
         print("[DETAIL] 창 기본속성 설정 완료")
 
@@ -557,19 +632,249 @@ class ProductCollectorGUI:
         content.grid(row=0, column=0, sticky="nsew")
 
         # test_detail_window_expand.py 구조 적용
-        content.columnconfigure(0, weight=2, uniform="col")
-        content.columnconfigure(1, weight=2, uniform="col")
-        content.columnconfigure(2, weight=2, uniform="col")
-        content.columnconfigure(3, weight=3, uniform="col")
+        content.columnconfigure(0, weight=1, uniform="col")
+        content.columnconfigure(1, weight=1, uniform="col")
+        content.columnconfigure(2, weight=1, uniform="col")
+        content.columnconfigure(3, weight=1, uniform="col")
+        content.columnconfigure(4, weight=1, uniform="col")
         content.rowconfigure(0, weight=1)
         print("[DETAIL] Grid 레이아웃 컬럼/로우 config 완료")
+        
+        
+        # ============================================================
+        # 1) 썸네일 패널
+        # ============================================================
+        thumb = ttk.LabelFrame(content, text="상품 썸네일", padding=10)
+        thumb.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+
+        thumb.grid_propagate(False)
+        thumb.pack_propagate(False)
 
         # ============================================================
-        # 1) 이미지 패널
+        # ① 템플릿 선택 UI(맨 위)
+        # ============================================================
+        dropdown_var = tk.StringVar(value="템플릿 선택 ▼")
+
+        def open_dropdown():
+            popup = tk.Toplevel(thumb)
+            popup.title("썸네일 구성 방식 선택")
+            popup.geometry("360x300")
+            popup.grab_set()
+
+            # ============= 이미지 유지용 캐시 추가 ============
+            if not hasattr(self, "_tree_img_cache"):
+                self._tree_img_cache = []   # 삭제되면 이미지도 사라짐!!!
+
+            style = ttk.Style(popup)
+            style.configure("Treeview", rowheight=60)
+
+            tree = ttk.Treeview(popup, show="tree")
+            tree.pack(fill="both", expand=True)
+
+            import os
+            from PIL import Image, ImageTk
+
+            # ⭕ 캐시 저장 위치 변경
+            def load_icon(filename):
+                path = os.path.join("images", filename)
+                if not os.path.exists(path):
+                    print("NO ICON:", path)
+                    return None
+                try:
+                    im  = Image.open(path).resize((60,60))
+                    img = ImageTk.PhotoImage(im)
+                    self._tree_img_cache.append(img)    # ★★ 유지 필수
+                    return img
+                except:
+                    return None
+
+            icon1 = load_icon("thumb01.jpg")
+            icon2 = load_icon("thumb02.png")
+
+            # 이미지 + 텍스트 표시 정상 작동
+            tree.insert("", "end", text=" 상의 1명", image=icon1)
+            tree.insert("", "end", text=" 하의 1명 + 제품 1개", image=icon2)
+
+            def select(_):
+                itemID = tree.focus()
+                name = tree.item(itemID,"text").strip()
+                dropdown_var.set(name+" ▼")
+                popup.destroy()
+
+            tree.bind("<<TreeviewSelect>>", select)
+
+        ttk.Button(thumb, textvariable=dropdown_var,
+                command=open_dropdown)\
+                .pack(fill="x", padx=5, pady=(3,10))   # ← ⭐ thumb 최상단 위치 완료
+
+
+        # ============================================================
+        # ② 이미지 체크박스 목록 섹션 (아래로)
+        # ============================================================
+        from PIL import Image, ImageTk, ImageOps
+        import urllib.request, io, threading
+
+        # ==========================
+        # 이미지 선택 저장 변수
+        # ==========================
+        self.selected_images = set()            # 선택 결과 저장
+        self._grid_img_cache = []               # ※ GC방지 필수
+
+        # ==========================
+        # 옵션 > 메인 이미지 순서 정렬
+        # ==========================
+        all_option_imgs = []
+        all_main_imgs = []
+
+        for opt in item.parsed_raw.get("options", []):
+            for v in opt.get("values", []):
+                img = v.get("image")
+                if isinstance(img, str) and img.startswith("http"):
+                    all_option_imgs.append(img)
+
+        for url in item.parsed_raw.get("images", []):
+            if isinstance(url, str) and url.startswith("http"):
+                all_main_imgs.append(url)
+
+        all_imgs = all_option_imgs + all_main_imgs
+        print(f"[DETAIL] 이미지 {len(all_imgs)}개")
+
+
+        thumbnail_grid = ttk.Frame(thumb)  # 부모 = thumb
+        thumbnail_grid.pack(fill="x", pady=(5,10))
+
+        COLUMN = 4
+        THUMB  = (60,60)
+        self.selected_images = set()
+        self._thumb_cache = []   # ※ GC 방지
+
+        from PIL import ImageOps, Image, ImageTk
+        import urllib.request, io, threading
+
+        def async_thumb(url, label):
+            def job():
+                try:
+                    raw = urllib.request.urlopen(url).read()
+                    im = Image.open(io.BytesIO(raw))
+                    im.thumbnail(THUMB)
+                    im = ImageOps.pad(im, THUMB, color="white")
+
+                    img = ImageTk.PhotoImage(im)
+                    self._thumb_cache.append(img)        # ⭕ 유지 필수
+                    label.after(1, lambda: label.config(image=img,text=""))
+                except:
+                    label.after(1, lambda: label.config(text="FAIL"))
+
+            threading.Thread(target=job,daemon=True).start()
+
+
+        # ---------- 이미지 체크박스 출력 ----------
+        row = col = 0
+        for url in all_imgs:
+            cell = ttk.Frame(thumbnail_grid, padding=1)
+            cell.grid(row=row, column=col, padx=2, pady=2, sticky="n")
+
+            var = tk.BooleanVar()
+            chk = ttk.Checkbutton(cell, variable=var)
+            chk.pack(anchor="center")
+
+            lb = ttk.Label(cell, text="loading...")
+            lb.pack(anchor="center", pady=2)
+            async_thumb(url, lb)
+
+            # 🔥 클릭 토글 함수
+            def toggle(u=url, v=var):
+                if not v.get():  # 현재 OFF → ON
+                    v.set(True)
+                    self.selected_images.add(u)
+                else:            # 현재 ON → OFF
+                    v.set(False)
+                    self.selected_images.discard(u)
+
+            chk.config(command=toggle)
+            lb.bind("<Button-1>", lambda e,u=url,v=var: toggle(u,v))   # ⭕ 이미지 클릭
+            cell.bind("<Button-1>", lambda e,u=url,v=var: toggle(u,v)) # ⭕ 셀 전체 클릭
+
+            col += 1
+            if col == COLUMN:
+                col = 0
+                row += 1
+
+
+        thumb.columnconfigure(0, weight=1)
+        
+        preview_label = ttk.Label(thumb, text="썸네일 미리보기 영역")
+        preview_label.pack(anchor="center", pady=(10,5))
+        
+        def show_big_preview(path):
+            from PIL import Image, ImageTk
+            img = Image.open(path)
+            img = img.resize((250,250))  # 원하는 크기로 조절 가능
+            img = ImageTk.PhotoImage(img)
+
+            preview_label.config(image=img)   # GUI 영역에 넣어서 사용
+            preview_label.image = img         # 중요: GC 방지
+
+
+        from image_tools.upper_focus import generate_upper_from_url   # 이미 제공한 파일 사용(상의 1명)
+
+        # 🔥 GUI 공통 썸네일 결과 저장 위치 (템플릿 관계없음)
+        THUMB_OUTPUT = "temp_img/final_thumbnail.png"
+
+        def regen_thumbnail():
+        
+            template = dropdown_var.get().replace("▼","").strip()
+            imgs = list(self.selected_images)
+
+            from image_tools.upper_focus import generate_upper_from_url
+            from image_tools.pp_focus import generate_thumbnail_from_urls, generate_thumbnail_from_paths
+
+            THUMB_OUTPUT = "temp_img/final_thumbnail.png"
+            os.makedirs("temp_img", exist_ok=True)
+
+            # ============================================================
+            # 템플릿 ① 상의 1명
+            # ============================================================
+            if template == "상의 1명" and len(imgs) == 1:
+                ok, result = generate_upper_from_url(imgs[0])
+                if ok:
+                    os.replace(result, THUMB_OUTPUT)
+
+            # ============================================================
+            # 템플릿 ② 하의 + 제품
+            # ============================================================
+            elif template == "하의 1명 + 제품 1개" and len(imgs) == 2:
+                ok, result = generate_thumbnail_from_urls(
+                    imgs[0], imgs[1], output_path=THUMB_OUTPUT
+                )
+
+            # ❗ 예외 처리 → Toast + 종료
+            else:
+                print("⚠ 템플릿과 선택 이미지 수가 맞지 않습니다")
+                toast("⚠ 템플릿과 선택 이미지 수가 맞지 않습니다", thumb)
+                return
+
+            # ============================================================
+            # 최종 처리 — 하나의 파일로 생성되는 것 고정
+            # ============================================================
+            if ok:
+                print(f"✔ 최종 썸네일 생성 → {THUMB_OUTPUT}")
+                show_big_preview(THUMB_OUTPUT)  # GUI 미리보기 즉시 갱신
+                toast("썸네일 생성 완료", thumb)  # ⭐ 성공 Toast
+            else:
+                print(f"❌ 생성 실패: {result}")
+                toast("❌ 썸네일 생성 실패", thumb)
+
+
+
+        ttk.Button(thumb, text="썸네일 생성", command=regen_thumbnail).pack(anchor="center", pady=(10,5))
+        
+        # ============================================================
+        # 2) 이미지 패널
         # ============================================================
         print("[DETAIL] 상품 이미지 패널 생성 시작")
         left = ttk.LabelFrame(content, text="상품 이미지", padding=10)
-        left.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
+        left.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
 
         left.grid_propagate(False)
         left.pack_propagate(False)
@@ -611,7 +916,7 @@ class ProductCollectorGUI:
 
                 print(f"[ASYNC-REQ] 이미지 비동기 요청됨 idx={idx}")
                 load_image_async(
-                    url, (120, 120),
+                    url, (140, 140),
                     lambda img, lbl=lbl: (
                         print(f"[ASYNC-CB] 콜백 실행 url={url[:60]}, 성공={img is not None}"),
                         lbl.configure(image=img, text="") if img else lbl.configure(text="[오류]"),
@@ -619,7 +924,7 @@ class ProductCollectorGUI:
                     ), self.root
                 )
 
-                ttk.Button(row, text="삭제",
+                ttk.Button(row, text="삭제", width=7,
                         command=lambda i=idx: delete_img(i)).pack(side="right")
                 ttk.Button(row, text="▲", width=3,
                         command=lambda i=idx: move_up(i)).pack(side="right")
@@ -648,156 +953,238 @@ class ProductCollectorGUI:
         print("[DETAIL] 이미지 목록 refresh_images() 호출 완료")
 
         # ============================================================
-        # 2) 상품명 패널
+        # 2) 상품명 패널 전체 (스크롤 내부에 모두 포함)
         # ============================================================
         mid = ttk.LabelFrame(content, text="상품명", padding=10)
-        mid.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
-        mid.grid_propagate(False)
-        mid.pack_propagate(False)
-        
-        fixed_top = ttk.Frame(mid)
-        fixed_top.pack(fill="x", pady=(0, 5))
+        mid.grid(row=0, column=2, sticky="nsew", padx=5, pady=5)
 
-        ttk.Label(fixed_top, text="최종 상품명").pack(anchor="w")
-
-        self.lens_final_name_text = tk.Text(
-            fixed_top,
-            height=2,           # 최대 2줄 표시
-            wrap="word",        # 단어 기준 줄바꿈
-        )
-        self.lens_final_name_text.pack(fill="x")
-        
-        category_text = "카테고리: 아직 선택되지 않음"
-        if getattr(item, "category_name", None):
-            if getattr(item, "category_code", None):
-                category_text = f"카테고리: {item.category_name} ({item.category_code})"
-            else:
-                category_text = f"카테고리: {item.category_name}"
-
-        self.category_result_label = ttk.Label(
-            fixed_top,
-            text=category_text,
-            foreground="#333"
-        )
-        self.category_result_label.pack(anchor="w", pady=(5, 0))
-        
-        # 버튼 프레임
-        btn_frame = ttk.Frame(fixed_top)
-        btn_frame.pack(anchor="e", pady=5)
-        
-        # 카테고리 매칭 버튼
-        ttk.Button(
-            btn_frame,
-            text="카테고리 매칭",
-            command=lambda p=item: self.match_category_action(p)
-        ).pack(side="right")
-        
-        ttk.Button(
-            btn_frame,
-            text="상품명 생성",
-            command=lambda p=item: self.generate_product_name_action(p)
-        ).pack(side="right", padx=5)
-
-        # 초기값 설정
-        initial_name = item.final_name or ""
-        self.lens_final_name_text.insert("1.0", initial_name)
-
+        # ──────────────────────────────
+        # Canvas(스크롤) 생성
+        # ──────────────────────────────
         c2 = tk.Canvas(mid)
         s2 = ttk.Scrollbar(mid, orient="vertical", command=c2.yview)
         inner2 = ttk.Frame(c2)
+
         bind_mousewheel(inner2, c2)
-        inner2_id = c2.create_window((0, 0), window=inner2, anchor="nw")
+
+        inner2_id = c2.create_window((0,0), window=inner2, anchor="nw")
         c2.configure(yscrollcommand=s2.set)
 
         c2.pack(fill="both", expand=True, side="left")
         s2.pack(fill="y", side="right")
 
-        def on_resize_c2(e):
-            c2.itemconfig(inner2_id, width=e.width)
-
-        c2.bind("<Configure>", on_resize_c2)
+        c2.bind("<Configure>", lambda e: c2.itemconfig(inner2_id, width=e.width))
         inner2.bind("<Configure>", lambda e: c2.configure(scrollregion=c2.bbox("all")))
 
-        print("[DETAIL] Lens 패널 생성 시작")
-        lens_list = item.lens_products
-        print(f"[DETAIL] Lens 결과 로드 완료 (총 {len(lens_list)}개)")
-        win.update()
-        def refresh_lens():
-            for w in inner2.winfo_children():
-                w.destroy()
+        # ──────────────────────────────
+        # (A) 이미지 리스트 (가장 최상단)
+        # ──────────────────────────────
+        from PIL import Image, ImageTk
+        import urllib.request, io, threading
 
-            for idx, p in enumerate(lens_list):
-                row = ttk.Frame(inner2, padding=5)
-                row.pack(fill="x", pady=5)
+        self.selected_main_image = tk.StringVar()
+        self._grid_img_cache = []
 
-                # grid layout: 2 columns
-                row.columnconfigure(0, weight=1)   # left expands
-                row.columnconfigure(1, weight=0)   # button fixed
+        all_option_imgs = []
+        all_main_imgs = []
 
-                # -----------------------------
-                # LEFT AREA (image + text)
-                # -----------------------------
-                left_area = ttk.Frame(row)
-                left_area.grid(row=0, column=0, sticky="nsew")
+        # 옵션 이미지 우선
+        for opt in item.parsed_raw.get("options", []):
+            for v in opt.get("values", []):
+                img = v.get("image")
+                if isinstance(img, str) and img.startswith("http"):
+                    all_option_imgs.append(img)
 
-                # image
-                lbl = ttk.Label(left_area, text="로딩중...")
-                lbl.pack(side="left", padx=4)
+        # 상품 메인 이미지
+        for url in item.parsed_raw.get("images", []):
+            if isinstance(url, str) and url.startswith("http"):
+                all_main_imgs.append(url)
 
-                src = p.get("image", "")
-                loader = (
-                    load_image_async if src.startswith("http")
-                    else load_base64_async
-                )
-                loader(
-                    src, (80, 80),
-                    lambda img, lbl=lbl: (
-                        lbl.configure(image=img, text="") if img else lbl.configure(text="[오류]"),
-                        setattr(lbl, "image", img)
-                    ), self.root
-                )
+        # 옵션 → 메인 순서
+        all_imgs = all_option_imgs + all_main_imgs
+        print(f"[DETAIL] 이미지 {len(all_imgs)}개")
 
-                # text label (wraplength will be updated later)
-                text_lbl = ttk.Label(
-                    left_area,
-                    text=p.get("name", ""),
-                    justify="left"
-                )
-                text_lbl.pack(side="left", padx=6, fill="x", expand=True)
+        # 그리드 UI
+        COLUMN = 4
+        THUMB = (60, 60)
 
-                # -----------------------------
-                # dynamically update wraplength
-                # -----------------------------
-                def update_wrap(event, lbl=text_lbl):
-                    # left_area width - image area(80px) - padding(20px)
-                    wrap_w = event.width - 120
-                    if wrap_w < 50:
-                        wrap_w = 50
-                    lbl.configure(wraplength=wrap_w)
+        from PIL import ImageOps   # ← 추가 필요
 
-                left_area.bind("<Configure>", update_wrap)
+        def async_load(url, label):
+            def job():
+                try:
+                    raw = urllib.request.urlopen(url, timeout=5).read()
+                    im = Image.open(io.BytesIO(raw))
 
-                # -----------------------------
-                # DELETE BUTTON
-                # -----------------------------
-                btn = ttk.Button(row, text="삭제", command=lambda i=idx: delete_lens(i))
-                btn.grid(row=0, column=1, sticky="e", padx=5)
+                    # ⭐ 이미지 크기 통일 (비율무관 60x60 정사각형으로 균등 정렬)
+                    im.thumbnail(THUMB)
+                    im = ImageOps.pad(im, THUMB, color="white")  # ← 패딩으로 사이즈 완전 통일
+
+                    photo = ImageTk.PhotoImage(im)
+                    self._grid_img_cache.append(photo)
+                    label.after(1, lambda: label.config(image=photo, text=""))
+                except:
+                    label.after(1, lambda: label.config(text="LOAD_FAIL"))
+            threading.Thread(target=job, daemon=True).start()
+
+        def toggle_radio(v):
+            cur = self.selected_main_image.get()
+            self.selected_main_image.set("" if cur == v else v)
+
+        row = col = 0
+        for url in all_imgs:
+            cell = ttk.Frame(inner2, padding=0)
+
+            # 🔥 좌/우/상/하 공간 없이 정렬 + 높이 균일하게
+            cell.grid(row=row, column=col, sticky="nsew", padx=1, pady=1)
+
+            rb = ttk.Radiobutton(cell, variable=self.selected_main_image, value=url)
+            rb.pack(anchor="center")
+
+            lb = ttk.Label(cell, text="loading...")
+            lb.pack()
+
+            rb.bind("<Button-1>", lambda e, u=url: toggle_radio(u))
+            lb.bind("<Button-1>", lambda e, u=url: toggle_radio(u))
+            cell.bind("<Button-1>", lambda e, u=url: toggle_radio(u))
+
+            async_load(url, lb)
+
+            col += 1
+            if col == COLUMN:
+                col = 0
+                row += 1
+
+        img_end_row = row
+        inner2.columnconfigure(0, weight=1)
+
+        row = img_end_row + 1
 
 
-        def delete_lens(i):
-            del lens_list[i]
-            refresh_lens()
+        # ============================================================
+        # (A) ← 키워드 먼저 배치
+        # ============================================================
+        keyword_frame = ttk.Frame(inner2, padding=5)
+        keyword_frame.grid(row=row, column=0, columnspan=4, sticky="ew", pady=(0,10))
 
-        refresh_lens()
+        self.keyword_textbox = tk.Text(keyword_frame, height=6, wrap="word")
+        self.keyword_textbox.pack(fill="x")
+
+        keywords = item.name_keywords if getattr(item,"name_keywords",None) else []
+        if keywords:
+            self.keyword_textbox.insert("1.0", ", ".join(keywords))
+
+        from pname_keyword import extract_keywords
+        def refresh_keywords():
+            current_name = self.final_name_text.get("1.0","end").strip()
+            if not current_name:
+                print("[KEYWORD] 상품명 없음 → 수집 불가")
+                return
+
+            new_keywords = extract_keywords(current_name)
+            item.name_keywords = new_keywords
+            self.keyword_textbox.delete("1.0","end")
+            self.keyword_textbox.insert("1.0", ", ".join(new_keywords))
+            print("[KEYWORD UPDATED]", new_keywords)
+
+        ttk.Button(keyword_frame, text="키워드 수집", command=refresh_keywords).pack(anchor="w", pady=(6,0))
+
+
+        row += 2   # ← 다음 섹션 위치 확보
+
+        orig_name = getattr(item, "original_name", "(원본 없음)")
+        orig_label = tk.Text(inner2, height=2, wrap="word", bg="#eee")
+        orig_label.insert("1.0", orig_name)
+        orig_label.config(state="disabled")
+        orig_label.grid(row=row, column=0, columnspan=4, sticky="ew", padx=5, pady=(5,10))
+
+        row += 2
+
+        ttk.Label(inner2, text="■ 최종 상품명").grid(row=row, column=0, columnspan=4, sticky="w", pady=(10,0))
+        row += 1
         
-        print("[DETAIL] 전체 패널 구성 완료")
-        print("[DETAIL] 상세보기 창 준비 완료")
+        name_frame = ttk.Frame(inner2, padding=10)
+        name_frame.grid(row=row, column=0, columnspan=4, sticky="ew")
+
+        self.final_name_text = tk.Text(name_frame, height=2, wrap="word")
+        self.final_name_text.pack(fill="x")
+
+
+        # ───────── 상품명 생성 함수 ─────────
+        from utils.product_name_generator import generate_final_name
+
+        def generate_product_name_action(item):
+            translated_name = item.original_name or item.parsed_raw.get("original_name") or ""
+
+            # 🔥 UI 키워드 입력폼에서 직접 키워드 수집하도록 변경
+            raw_keywords = self.keyword_textbox.get("1.0", "end").strip()
+            keywords = [kw.strip() for kw in raw_keywords.replace("\n"," ").split(",") if kw.strip()]
+
+            if not translated_name:
+                print("[ERROR] 원본상품명 없음")
+                return
+            if not keywords:
+                print("[ERROR] 키워드 없음 → UI 키워드 입력이 비어 있음")
+                return
+
+            selected_img = self.selected_main_image.get() or None
+            print(f"[IMG SELECT] {selected_img}")
+
+            new_name = generate_final_name(
+                translated_name = translated_name,
+                keyword_list    = keywords,    # ← 이제 UI 입력 키워드 기반
+                image_url       = selected_img
+            )
+
+            if new_name:
+                item.final_name = new_name
+                self.final_name_text.delete("1.0","end")
+                self.final_name_text.insert("1.0",new_name)
+                print(f"[FINAL NAME] {new_name}")
+            else:
+                print("[상품명 실패] 결과 없음")
+
+
+        ttk.Button(name_frame, text="상품명 생성", command=lambda p=item: generate_product_name_action(p)).pack(anchor="w", pady=5)
+
+        # 기존 final_name 있으면 미리 적용
+        initial = item.final_name or ""
+        self.final_name_text.insert("1.0", initial)
+        
+        row += 3   # ← 최종상품명 아래를 다시 확보
+
+        # ============================================================
+        # (D) 카테고리 영역
+        # ============================================================
+        ttk.Label(inner2, text="■ 카테고리").grid(row=row+4, column=0, columnspan=4, sticky="w", pady=(10,0))
+        
+        category_section = ttk.Frame(inner2, padding=10)
+        category_section.grid(row=row+5, column=0, columnspan=4, sticky="ew", pady=(0,10))
+
+        txt = "카테고리: 아직 선택되지 않음"
+        if getattr(item,"category_name",None):
+            if getattr(item,"category_code",None):
+                txt = f"카테고리: {item.category_name} ({item.category_code})"
+            else:
+                txt = f"카테고리: {item.category_name}"
+
+        self.category_result_label = ttk.Label(category_section, text=txt, foreground="#333")
+        self.category_result_label.pack(anchor="w", pady=(0,5))
+
+        ttk.Button(category_section,text="카테고리 매칭",command=lambda p=item:self.match_category_action(p)).pack(anchor="w")
+
+        # 최종 스크롤 갱신
+        inner2.update_idletasks()
+        c2.configure(scrollregion=c2.bbox("all"))
+
+
 
         # ============================================================
         # 3) 옵션 패널 (수정 가능 Entry 버전)
         # ============================================================
         opt = ttk.LabelFrame(content, text="옵션", padding=10)
-        opt.grid(row=0, column=2, sticky="nsew", padx=5, pady=5)
+        opt.grid(row=0, column=3, sticky="nsew", padx=5, pady=5)
+        
         opt.grid_propagate(False)
         opt.pack_propagate(False)
 
@@ -897,7 +1284,6 @@ class ProductCollectorGUI:
             from utils.detail_description_generator import (
                 render_options_section,
                 html_to_png_options,
-                html_to_png_final
             )
             
             # ----- 옵션 PNG 다시 생성 -----
@@ -914,7 +1300,8 @@ class ProductCollectorGUI:
         # 4) 상세설명 패널
         # ============================================================
         detail = ttk.LabelFrame(content, text="상세설명", padding=10)
-        detail.grid(row=0, column=3, sticky="nsew", padx=5, pady=5)
+        detail.grid(row=0, column=4, sticky="nsew", padx=5, pady=5)
+        
         detail.grid_propagate(False)
         detail.pack_propagate(False)
 
@@ -1010,7 +1397,7 @@ class ProductCollectorGUI:
         # ============================================================
         ttk.Button(
             btn_frame,
-            text="상세설명 미리보기",
+            text="미리보기",
             command=lambda p=item: self.open_detail_description_preview(p)
         ).pack(side="left", padx=5)
         
@@ -1064,28 +1451,29 @@ class ProductCollectorGUI:
             row = ttk.Frame(map_frame)
             row.pack(fill="x", pady=2)
 
-            # 왼쪽 Entry (원문 헤더)
-            e_left = ttk.Entry(row, width=25)
+            row.columnconfigure(0, weight=1)   # ← 왼쪽 Entry 50%
+            row.columnconfigure(1, weight=1)   # ← 오른쪽 Entry 50%
+
+            # 왼쪽 Entry
+            e_left = ttk.Entry(row)
             e_left.insert(0, h)
-            e_left.pack(side="left", padx=5)
+            e_left.grid(row=0, column=0, padx=5, sticky="ew")
             left_entries.append(e_left)
 
-            # -----------------------------
-            # 오른쪽 Entry (매핑 후 헤더)
-            # -----------------------------
+            # 오른쪽 Entry
             mapped = current_mapping.get(h)
-
             if mapped:
                 display_val = mapped
-                entry_style = "Mapped.TEntry"    # 매핑됨 → 검정
+                entry_style = "Mapped.TEntry"
             else:
                 display_val = translate_header(h)
-                entry_style = "Translated.TEntry"  # 자동 번역 → 회색
+                entry_style = "Translated.TEntry"
 
             e_right = ttk.Entry(row, style=entry_style)
             e_right.insert(0, display_val)
-            e_right.pack(side="left", fill="x", expand=True, padx=5)
+            e_right.grid(row=0, column=1, padx=5, sticky="ew")
             right_entries.append(e_right)
+
 
         # -----------------------------------------
         # JSON 파일 직접 수정 버튼
@@ -1227,7 +1615,12 @@ class ProductCollectorGUI:
         # ============================================================
         def save_all():
             # 상품명 저장
-            item.final_name = self.lens_final_name_text.get("1.0", "end").strip()
+            item.final_name = self.final_name_text.get("1.0", "end").strip()
+            
+            # NEW: UI 키워드 저장 추가
+            raw_kw = self.keyword_textbox.get("1.0", "end").strip()       # ← UI에 있는 키워드 Textbox
+            kw_list = [k.strip() for k in raw_kw.replace("\n"," ").split(",") if k.strip()]
+            item.name_keywords = kw_list   
     
             # -----------------------------------
             # ① UI 입력 텍스트 저장
@@ -1245,8 +1638,7 @@ class ProductCollectorGUI:
             # ③ 이미지/렌즈 데이터 업데이트
             # -----------------------------------
             item.parsed_raw["images"] = images
-            item.lens_products = lens_list
-
+            
             # -----------------------------------
             # ④ 창 닫기 & 탭 새로고침
             # -----------------------------------
@@ -1264,41 +1656,66 @@ class ProductCollectorGUI:
     # 정보 수집 전체 실행 — 수집대기 상품은 삭제하지 않음
     # =================================================================
     def collect_all(self):
-
+    
         if not self.products_pending:
             messagebox.showinfo("알림", "수집할 상품이 없습니다.")
             return
 
+        # 📌 공용 상태표시 라벨 (없으면 생성)
+        if not hasattr(self, "upload_status_label_global"):
+            self.upload_status_label_global = ttk.Label(self.root, text="대기중", foreground="blue")
+            self.upload_status_label_global.pack(anchor="ne", pady=2, padx=8)
+
+        self.upload_status_label_global.config(text="수집 시작")
+
         def task():
-            for item in list(self.products_pending):
+            total = len(self.products_pending)
+            success = 0
+            failed = []
 
-                result = self.scraper.collect(item.url)
+            for idx, item in enumerate(list(self.products_pending), start=1):
 
-                if "error" in result:
-                    messagebox.showerror("오류", f"{item.url}\n{result['error']}")
-                    continue
+                try:
+                    result = self.scraper.collect(item.url)
 
-                # 🔥 파싱 + LLM 상세설명 생성 + 텍스트/HTML 변환 모두 load_data에서 끝남
-                item.load_data(result)
+                    if "error" in result:
+                        failed.append(item.url)
+                        self.upload_status_label_global.config(text=f"수집 {idx}/{total} (실패 {len(failed)})")
+                        continue
 
-                # 🔥 Lens 없음 경고만 유지
-                if not item.lens_products:
-                    messagebox.showwarning(
-                        "Lens 없음",
-                        f"Lens 데이터가 없습니다.\n({item.url})\n그래도 수집완료로 이동합니다."
-                    )
+                    item.load_data(result)
 
-                exists = any(c.url == item.url for c in self.products_collected)
-                if not exists:
-                    self.products_collected.append(item)
+                    if not any(c.url == item.url for c in self.products_collected):
+                        self.products_collected.append(item)
+
+                    success += 1
+                    self.upload_status_label_global.config(text=f"수집 {success}/{total} 진행중")
+
+                except Exception as e:
+                    failed.append(item.url)
+                    print("[COLLECT ERROR]", item.url, e)
+                    self.upload_status_label_global.config(text=f"수집 {success}/{total} (실패 {len(failed)})")
 
                 self.refresh_tab_pending()
                 self.refresh_tab_collected()
+                self.root.update_idletasks()
+                time.sleep(0.2)
 
-            messagebox.showinfo("완료", "수집이 완료되었습니다.")
+            fail_count = len(failed)
+            msg = f"총 {total}개 중 {success} 성공\n실패 {fail_count}개"
 
+            if fail_count > 0:
+                msg += "\n\n실패 목록:\n" + "\n".join(" • "+u for u in failed)
+
+            messagebox.showinfo("수집 완료", msg)
+
+            self.upload_status_label_global.config(
+                text=f"수집 완료 {success}/{total} 실패 {fail_count}"
+            )
 
         threading.Thread(target=task, daemon=True).start()
+
+
 
 
     # =================================================================

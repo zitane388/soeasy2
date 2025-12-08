@@ -1,5 +1,4 @@
 # parsers/gu/parser_jp.py
-from parsers.base_parser import BaseParser
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, urlsplit, urlunsplit
 from utils.detail_description_generator import normalize_size_chart
@@ -14,7 +13,7 @@ def remove_query(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, '', ''))
 
 
-class GUJapanParser(BaseParser):
+class GUJapanParser:
 
     def __init__(self, rules):
         self.rules = rules

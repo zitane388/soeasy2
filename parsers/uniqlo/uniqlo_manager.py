@@ -48,7 +48,7 @@ class UniqloParserManager:
     # ---------------------------------------------
     def _get(self, country_code, parser_cls):
         rules = self._load_rules(f"{country_code}.json")
-        parser = parser_cls(rules)
+        parser = parser_cls(rules, BRAND)
 
         return {
             "parser": parser,

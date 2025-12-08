@@ -1,0 +1,18 @@
+Remove-Item -Force main.spec
+Remove-Item -Recurse -Force dist
+Remove-Item -Recurse -Force build
+
+pyinstaller --onefile `
+  --add-data="llm;llm" `
+  --add-data="rules;rules" `
+  --add-data="parsers;parsers" `
+  --add-data="utils;utils" `
+  --add-data="naver_uploader;naver_uploader" `
+  --add-data="templates;templates" `
+  --add-data="images;images" `
+  --add-data="windly_temp;windly_temp" `
+  --add-data="data;data" `
+  --add-data="scrapers;scrapers" `
+  --add-data="automation;automation" `
+  main.py
+

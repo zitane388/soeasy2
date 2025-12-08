@@ -1,5 +1,4 @@
 # parsers/uniqlo/parser_jp.py
-from parsers.base_parser import BaseParser
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, urlsplit, urlunsplit
 from utils.detail_description_generator import normalize_size_chart
@@ -19,16 +18,15 @@ def remove_query(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, '', ''))
 
 
-class UniqloJapanParser(BaseParser):
+class UniqloJapanParser:
 
-    def __init__(self, rules):
+    def __init__(self, rules, brand):
         self.rules = rules
-        print("[UniqloJapanParser] 파서 초기화 완료")
+        self.brand = brand
 
-    def parse(self, html: str, request_raw_html=None, original_url=None):
-        print("[UniqloJapanParser] parse 시작")
+    def parse(self, scraper, original_url, first_html):
         
-        soup = BeautifulSoup(html, "html.parser")
+        soup = BeautifulSoup(first_html, "html.parser")
         
         # ---------------------------------------------------
         # [NEW] 사이즈표 HTML 파싱
@@ -44,6 +42,13 @@ class UniqloJapanParser(BaseParser):
             
         # ② 상세설명 파싱 (메인 페이지 기준)
         detail_description = self._parse_detail_description(soup)
+        
+        
+        title_node = soup.find("div", {"data-testid": "ITOTypography"})
+        raw_name = title_node.get_text(strip=True) if title_node else None
+
+        # 상품명 파싱 추가
+        raw_name = self.extract_uniqlo_name_soup(soup)
         
         video_url = self._parse_video(soup)
 
@@ -72,7 +77,7 @@ class UniqloJapanParser(BaseParser):
             print(f"[UniqloJapanParser] 색상 '{name}' 요청 →", variant_url)
 
             print(f"[DEBUG] request_raw_html 호출전 → {variant_url}")
-            html_variant = request_raw_html(variant_url, code)
+            html_variant = scraper.request_color_html(original_url, code)
             print(f"[DEBUG] request_raw_html 반환: {bool(html_variant)}")
             if not html_variant:
                 print(f"[UniqloJapanParser] {name} HTML 실패")
@@ -227,30 +232,46 @@ class UniqloJapanParser(BaseParser):
                     for name in merged_sizes_order
                 ]
             })
-
+            
+        detail_data = results["detail_description"]
 
         # ------------------------------------------------------
         # 🔥 최종 구조 생성 (variants 제거)
         # ------------------------------------------------------
         final_results = {
+            "original_name": raw_name,
             "colors": final_colors,
             "prices": merged_prices,
             "sizes": [merged_sizes[name] for name in merged_sizes_order],
             "images": final_images,
-            "detail_description": results["detail_description"],
+            "detail_description": detail_data.get("text", ""),
+            "model_number":      detail_data.get("model_number"),
             "size_html": size_html_raw,
-
-            # 🔥 표준 옵션 그룹
             "options": option_groups,
-            
-            # 🔥 영상 URL (1개)
             "video": video_url,
             "size_headers_original": headers,
             "size_rows_original": rows,
             "size_html_raw": size_html_raw
         }
+        
+        
+        import json
+        
+        print("\n=========== FINAL PARSED DATA ===========")
+        print(json.dumps(final_results, ensure_ascii=False, indent=2))
+        print("=========================================\n")
 
         return final_results
+    
+    def extract_uniqlo_name_soup(self, soup):
+        main = soup.find("main")
+        if not main:
+            return None
+        
+        node = main.find("div", {"data-testid": "ITOTypography"})
+        return node.get_text(strip=True) if node else None
+
+
 
     # ------------------------------------------------------
     # 1) 색상 목록 파싱
@@ -389,8 +410,8 @@ class UniqloJapanParser(BaseParser):
     # ------------------------------------------------------
     def _parse_detail_description(self, soup):
         """
-        상세 설명 파트를 수집하여 LLM이 처리하기 좋은
-        단일 문자열 형태로 합쳐 반환한다.
+        상세 설명을 수집 → 상품번호 추출/제거 → 
+        LLM 입력에 적합한 단일 문자열 + model_number 함께 반환
         """
 
         detail_rules = self.rules.get("detail", {})
@@ -430,15 +451,28 @@ class UniqloJapanParser(BaseParser):
             if t:
                 parts.append(t)
 
-        # ---------------------------------------
-        # 🔥 최종: parts 를 하나의 문자열로 합침
-        # ---------------------------------------
         if not parts:
-            return ""
+            return {"text": "", "model_number": None}
 
-        # 문단 간 두 줄바꿈으로 자연스러운 구분
+        # 최종 텍스트 병합
         final_text = "\n\n".join(parts).strip()
-        return final_text
+
+        # ============================================
+        # 🔥 상품번호 추출 및 제거 (파서에서 처리)
+        # ============================================
+        import re
+        model_number = None
+
+        m = re.search(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", final_text)
+        if m:
+            model_number = m.group(1)
+            final_text = re.sub(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", "", final_text).strip()
+
+        return {
+            "text": final_text,
+            "model_number": model_number
+        }
+
 
     
     def _parse_size_chart(self, soup: BeautifulSoup):

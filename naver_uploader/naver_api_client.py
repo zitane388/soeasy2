@@ -1,19 +1,16 @@
-# naver_uploader/naver_api_client.py
-
 import time
 import json
 import requests
 import os
 import bcrypt
+print("bcrypt module path =", bcrypt.__file__)
+print("bcrypt version =", bcrypt.__version__)
 import pybase64
-
 
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
-
 class NaverApiClient:
     def __init__(self):
-        # 설정 로드
         with open(CONFIG_PATH, "r", encoding="utf-8") as f:
             cfg = json.load(f)
 
@@ -21,17 +18,12 @@ class NaverApiClient:
         self.client_secret = cfg["client_secret"]
         self.seller_id = cfg["seller_id"]
 
-        # 토큰 상태 저장
         self.access_token = None
         self.token_expires_at = 0
 
-    # -------------------------------------------------------------
-    # 🔥 테스트에서 성공한 토큰 발급 방식 100% 동일하게 적용
-    # -------------------------------------------------------------
     def _get_token(self):
         now = time.time()
 
-        # 기존 토큰 재사용
         if self.access_token and now < self.token_expires_at:
             return self.access_token
 
@@ -67,15 +59,9 @@ class NaverApiClient:
         print("[NaverApiClient] ✔ 토큰 발급 완료")
         return self.access_token
 
-    # -------------------------------------------------------------
-    # API 요청
-    # -------------------------------------------------------------
     def request(self, method, path, data=None, files=None):
         token = self._get_token()
 
-        # ✔ 테스트에서 성공한 URL 패턴 그대로 사용
-        # path 예: "/external/v2/product-images/upload"
-        #         "/external/v2/products"
         url = f"https://api.commerce.naver.com{path}"
 
         print("\n[API] METHOD:", method)
@@ -86,7 +72,6 @@ class NaverApiClient:
         }
 
         if files:
-            print("[API] multipart/form-data 요청")
             resp = requests.request(method, url, headers=headers, files=files)
         else:
             headers["Content-Type"] = "application/json"
@@ -98,16 +83,13 @@ class NaverApiClient:
         try:
             resp.raise_for_status()
         except Exception as e:
-            print("[ERROR] 네이버 API 오류:", resp.text)
             print("\n================ NEAVER API ERROR ================\n")
             print("URL:", url)
             print("METHOD:", method)
             print("STATUS:", resp.status_code)
             print("RESPONSE TEXT:", resp.text)
-            print("REQUEST BODY:", data)   # ← 네이버에 보낸 전체 body
+            print("REQUEST BODY:", data)
             print("\n==================================================\n")
             raise
-            raise e
 
         return resp.json()
-

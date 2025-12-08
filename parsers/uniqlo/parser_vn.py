@@ -1,6 +1,4 @@
 # parsers/uniqlo/parser_vn.py
-
-from parsers.base_parser import BaseParser
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, urlsplit, urlunsplit
 
@@ -20,75 +18,59 @@ def remove_query(url: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, '', ''))
 
 
-class UniqloVietnamParser(BaseParser):
+class UniqloVietnamParser:
 
     def __init__(self, rules):
         self.rules = rules
         print("[UniqloVietnamParser] 파서 초기화 완료")
 
     # ---------------------------------------------------------
-    def parse(self, html: str, request_raw_html=None, original_url=None):
-        print("[UniqloVietnamParser] parse 시작")
+    def parse(self, scraper, original_url, first_html):
+        print("[VN Parser] parse() 실행 — Scraper 기반 구조")
 
-        soup = BeautifulSoup(html, "html.parser")
+        soup = BeautifulSoup(first_html, "html.parser")
 
-        # -------------------------------
-        # 사이즈표 raw HTML
-        # -------------------------------
+        # 1) 기본 정보
         size_html_raw = self._parse_size_chart(soup)
         headers, rows = self.extract_raw_size_chart(size_html_raw)
-
-        # -------------------------------
-        # 색상 파싱
-        # -------------------------------
         colors = self._parse_color_list(soup)
-
-        # -------------------------------
-        # 상세설명
-        # -------------------------------
         detail_description = self._parse_detail_description(soup)
-
-        # -------------------------------
-        # 영상
-        # -------------------------------
         video_url = self._parse_video(soup)
 
-        # 임시 저장
         variants = {}
-
         seen = set()
+
+        print(f"[VN] 색상 {len(colors)}개 처리 시작")
+
+        # 🔥 색상별 상세 HTML은 Scraper가 담당 — request_raw_html 제거됨
         for c in colors:
             code = c["code"]
             if not code or code in seen:
                 continue
             seen.add(code)
 
-            variant_url = replace_color_code(original_url, code)
-            html_variant = request_raw_html(variant_url, code)
+            print(f"[VN] Variant 요청 → {code}")
+            html_variant = scraper.request_color_html(original_url, code)  # ← HERE (수정 핵심)
             if not html_variant:
+                print(f"[VN] {code} 수집 실패 → skip")
                 continue
 
             variants[code] = self._parse_variant_detail(html_variant)
 
-        # -------------------------------
-        # 병합
-        # -------------------------------
-        merged_sizes = {}
+        # ======================================================
+        # 병합 로직 (기존 구조 그대로 유지)
+        # ======================================================
+        merged_sizes, merged_prices = {}, {}
         merged_sizes_order = []
-        merged_prices = {}
-
         color_main_images = {}
-        sub_images = []
-        feature_images = []
+        sub_images, feature_images = [], []
+        seen_sub, seen_feature = set(), set()
 
-        seen_sub = set()
-        seen_feature = set()
+        for code, var in variants.items():
 
-        for code, variant in variants.items():
+            merged_prices[code] = var.get("price")
 
-            merged_prices[code] = variant.get("price")
-
-            for url in variant.get("images", []):
+            for url in var.get("images", []):
                 lower = url.lower()
 
                 if "/item/" in lower:
@@ -108,9 +90,10 @@ class UniqloVietnamParser(BaseParser):
                         feature_images.append(url)
                     continue
 
-            # 사이즈
-            for s in variant.get("sizes", []):
-                name = s["name"]
+            for s in var.get("sizes", []):
+                name = s.get("name")
+                if not name: continue
+
                 if name not in merged_sizes:
                     merged_sizes[name] = {
                         "name": name,
@@ -119,58 +102,39 @@ class UniqloVietnamParser(BaseParser):
                     }
                     merged_sizes_order.append(name)
                 else:
-                    if merged_sizes[name]["code"] is None and s.get("code"):
+                    if merged_sizes[name].get("code") is None and s.get("code"):
                         merged_sizes[name]["code"] = s["code"]
-                    if s.get("disabled", False):
+                    if s.get("disabled"):
                         merged_sizes[name]["disabled"] = True
 
-        # -------------------------------
-        final_images = sub_images + feature_images
-
         final_colors = [
-            {
-                "name": c["name"],
-                "code": c["code"],
-                "image": color_main_images.get(c["code"])
-            }
+            {"name": c["name"], "code": c["code"], "image": color_main_images.get(c["code"])}
             for c in colors
         ]
 
         option_groups = []
-
         if final_colors:
             option_groups.append({
                 "group_name": "색상",
                 "values": [
-                    {
-                        "name": col["name"],
-                        "code": col["code"],
-                        "image": col.get("image"),
-                        "disabled": False
-                    }
+                    {"name": col["name"], "code": col["code"], "image": col.get("image"), "disabled": False}
                     for col in final_colors
                 ]
             })
-
         if merged_sizes_order:
             option_groups.append({
                 "group_name": "사이즈",
                 "values": [
-                    {
-                        "name": merged_sizes[name]["name"],
-                        "code": merged_sizes[name].get("code"),
-                        "disabled": merged_sizes[name].get("disabled", False)
-                    }
-                    for name in merged_sizes_order
+                    {"name": merged_sizes[n]["name"], "code": merged_sizes[n]["code"], "disabled": merged_sizes[n]["disabled"]}
+                    for n in merged_sizes_order
                 ]
             })
 
-        # 최종 구조
         return {
             "colors": final_colors,
             "prices": merged_prices,
             "sizes": [merged_sizes[n] for n in merged_sizes_order],
-            "images": final_images,
+            "images": sub_images + feature_images,
             "detail_description": detail_description,
             "size_html": size_html_raw,
             "options": option_groups,
