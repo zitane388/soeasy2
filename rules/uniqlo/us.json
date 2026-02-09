@@ -1,0 +1,30 @@
+{
+    "product_name": [
+        "h1",
+        ".product-title",
+        "meta[property='og:title']"
+    ],
+    "price": [
+        ".product-price",
+        ".price__value",
+        ".price-sales"
+    ],
+    "color": [
+        ".swatch",
+        ".color-chip",
+        "button.color-chip"
+    ],
+    "size": [
+        ".size-chip",
+        ".size-buttons button",
+        ".product-sizes__item"
+    ],
+    "image": [
+        ".main-image img",
+        "img[data-src]"
+    ],
+    "soldout_classes": [
+        "is-disabled",
+        "disabled"
+    ]
+}
