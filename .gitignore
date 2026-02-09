@@ -14,3 +14,12 @@ windly_temp/
 html_cache/
 debug/
 .local-browsers/
+
+# secrets
+openai_api_key.txt
+*.env
+.env
+
+# python cache (절대 커밋 금지)
+__pycache__/
+*.pyc
