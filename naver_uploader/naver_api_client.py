@@ -2,6 +2,7 @@ import time
 import json
 import requests
 import os
+import threading
 import bcrypt
 print("bcrypt module path =", bcrypt.__file__)
 print("bcrypt version =", bcrypt.__version__)
@@ -20,44 +21,47 @@ class NaverApiClient:
 
         self.access_token = None
         self.token_expires_at = 0
+        
+        self._token_lock = threading.Lock()
 
     def _get_token(self):
-        now = time.time()
+        with self._token_lock:
+            now = time.time()
 
-        if self.access_token and now < self.token_expires_at:
+            if self.access_token and now < self.token_expires_at:
+                return self.access_token
+
+            timestamp = str(int(time.time() * 1000))
+            raw = f"{self.client_id}_{timestamp}".encode("utf-8")
+
+            hashed = bcrypt.hashpw(raw, self.client_secret.encode("utf-8"))
+            signature = pybase64.b64encode(hashed).decode("utf-8")
+
+            url = "https://api.commerce.naver.com/external/v1/oauth2/token"
+
+            data = {
+                "client_id": self.client_id,
+                "timestamp": timestamp,
+                "client_secret_sign": signature,
+                "grant_type": "client_credentials",
+                "type": "SELF",
+                "sellerId": self.seller_id,
+            }
+
+            print("[TOKEN REQ]", data)
+
+            resp = requests.post(url, data=data)
+
+            print("[TOKEN RESP]", resp.status_code, resp.text)
+
+            resp.raise_for_status()
+            token_data = resp.json()
+
+            self.access_token = token_data["access_token"]
+            self.token_expires_at = now + token_data["expires_in"] - 10
+
+            print("[NaverApiClient] ✔ 토큰 발급 완료")
             return self.access_token
-
-        timestamp = str(int(time.time() * 1000))
-        raw = f"{self.client_id}_{timestamp}".encode("utf-8")
-
-        hashed = bcrypt.hashpw(raw, self.client_secret.encode("utf-8"))
-        signature = pybase64.standard_b64encode(hashed).decode("utf-8")
-
-        url = "https://api.commerce.naver.com/external/v1/oauth2/token"
-
-        data = {
-            "client_id": self.client_id,
-            "timestamp": timestamp,
-            "client_secret_sign": signature,
-            "grant_type": "client_credentials",
-            "type": "SELF",
-            "sellerId": self.seller_id,
-        }
-
-        print("[TOKEN REQ]", data)
-
-        resp = requests.post(url, data=data)
-
-        print("[TOKEN RESP]", resp.status_code, resp.text)
-
-        resp.raise_for_status()
-        token_data = resp.json()
-
-        self.access_token = token_data["access_token"]
-        self.token_expires_at = now + token_data["expires_in"] - 5
-
-        print("[NaverApiClient] ✔ 토큰 발급 완료")
-        return self.access_token
 
     def request(self, method, path, data=None, files=None):
         token = self._get_token()
@@ -83,7 +87,7 @@ class NaverApiClient:
         try:
             resp.raise_for_status()
         except Exception as e:
-            print("\n================ NEAVER API ERROR ================\n")
+            print("\n================ NAVER API ERROR ================\n")
             print("URL:", url)
             print("METHOD:", method)
             print("STATUS:", resp.status_code)

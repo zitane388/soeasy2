@@ -1,14 +1,17 @@
 # llm_client.py
-# Soeasy2 LLM 요청 전용 모듈 (프롬프트 일원화 버전)
+# Soeasy2 LLM 요청 전용 모듈 (프롬프트 일원화 + split 구조)
 
-import json, time, os, base64
+import json
+import time
+import os
+import base64
 import importlib
 from openai import OpenAI
 
 # -----------------------------------------------------
 # 1) API 설정
 # -----------------------------------------------------
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")   # <-- 환경변수로 변경
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 LLM_MODEL = "gpt-4o-mini"
 TIMEOUT = 45
 RETRY = 2
@@ -33,12 +36,12 @@ def reload_formatter():
         "OPTION": formatter_module.PRODUCT_OPTION_PROMPT,
         "NAME": formatter_module.PRODUCT_NAME_PROMPT,
         "NAME_VISION": formatter_module.PRODUCT_NAME_PROMPT_VISION,
-
-        # 카테고리 관련 2종
-        "CATEGORY_MID": formatter_module.CATEGORY_MID_SELECT_PROMPT,
-        "CATEGORY_FINAL": formatter_module.CATEGORY_FINAL_SELECT_PROMPT,
+        "CATEGORY_FALLBACK": formatter_module.CATEGORY_PICK_PROMPT,
+        "CATEGORY_DETAIL_FILTER": formatter_module.CATEGORY_DETAIL_FILTER_PROMPT,
+        "ATTRIBUTE_PICK": formatter_module.ATTRIBUTE_PICK_PROMPT,
+        "CAPTCHA": formatter_module.CAPTCHA_SOLVE_PROMPT,
+        "PRODUCT_OPTION_GROUP_FILTER_PROMPT": formatter_module.PRODUCT_OPTION_GROUP_FILTER_PROMPT
     }
-
 
 # 최초 초기화
 PROMPTS = {}
@@ -49,11 +52,9 @@ def get_prompt(name: str) -> str:
     return PROMPTS.get(name, "")
 
 # -----------------------------------------------------
-# 3) LLM 요청 함수
+# 3) 단일 프롬프트 LLM 요청 (기존 방식 유지)
 # -----------------------------------------------------
 def request_llm(prompt: str) -> str:
-    last_err = None
-
     for attempt in range(RETRY + 1):
         try:
             response = client.responses.create(
@@ -65,29 +66,23 @@ def request_llm(prompt: str) -> str:
                 return response.output_text.strip()
 
             try:
-                text = response.data[0].content[0].text
-                return text.strip()
-            except:
+                return response.data[0].content[0].text.strip()
+            except Exception:
                 pass
 
             raise RuntimeError("LLM 응답에서 텍스트 추출 실패")
 
         except Exception as e:
-            last_err = e
             print(f"[LLM] 실패 {attempt+1}/{RETRY+1} → {e}")
             time.sleep(1.2)
 
-    print("[LLM] 최종 실패, prompt 일부 반환")
-    return prompt[:200]
+    print("[LLM] 최종 실패")
+    return ""
 
 # -----------------------------------------------------
-# 5) 이미지 포함 LLM 요청 함수 (신규)
+# 4) 이미지 포함 LLM 요청
 # -----------------------------------------------------
-# llm_client.py
-
 def request_llm_with_image(prompt: str, image_url: str) -> str:
-    last_err = None
-
     for attempt in range(RETRY + 1):
         try:
             response = client.responses.create(
@@ -96,40 +91,72 @@ def request_llm_with_image(prompt: str, image_url: str) -> str:
                     {
                         "role": "user",
                         "content": [
-                            {"type": "input_text",  "text": prompt},
-                            {"type": "input_image", "image_url": image_url}   # 🔥 dict 아님
-                        ]
+                            {"type": "input_text", "text": prompt},
+                            {"type": "input_image", "image_url": image_url},
+                        ],
                     }
-                ]
+                ],
             )
 
-            if hasattr(response, "output_text"):
+            if hasattr(response, "output_text") and response.output_text:
                 return response.output_text.strip()
 
             try:
                 return response.data[0].content[0].text.strip()
-            except:
+            except Exception:
                 pass
 
-            raise RuntimeError("LLM 응답 텍스트 추출 실패")
+            raise RuntimeError("Vision LLM 응답 텍스트 추출 실패")
 
         except Exception as e:
             print(f"[LLM-IMG] 실패 {attempt+1}/{RETRY+1} → {e}")
-            last_err = e
+            time.sleep(1.2)
 
-    print("[LLM-IMG] 최종 실패 → Vision 응답 없음")
+    print("[LLM-IMG] 최종 실패")
     return ""
 
+# -----------------------------------------------------
+# 5) Prefix / Suffix 분리 요청 (Prompt Caching 대응)
+# -----------------------------------------------------
+def request_llm_split(prefix: str, suffix: str) -> str:
+    for attempt in range(RETRY + 1):
+        try:
+            response = client.responses.create(
+                model=LLM_MODEL,
+                input=[
+                    {"role": "system", "content": prefix},
+                    {"role": "user", "content": suffix},
+                ],
+            )
 
+            if hasattr(response, "output_text") and response.output_text:
+                return response.output_text.strip()
+
+            try:
+                return response.data[0].content[0].text.strip()
+            except Exception:
+                pass
+
+            raise RuntimeError("LLM 응답에서 텍스트 추출 실패")
+
+        except Exception as e:
+            print(f"[LLM-SPLIT] 실패 {attempt+1}/{RETRY+1} → {e}")
+            time.sleep(1.2)
+
+    print("[LLM-SPLIT] 최종 실패")
+    return ""
 
 # -----------------------------------------------------
-# 4) 캐시 기능
+# 6) 간단 캐시 (split용 확장 가능)
 # -----------------------------------------------------
 _cache = {}
 
-def request_llm_cached(key: str, prompt: str) -> str:
-    if key in _cache:
-        return _cache[key]
-    out = request_llm(prompt)
-    _cache[key] = out
+def request_llm_split_cached(prefix_id: str, prefix: str, suffix: str) -> str:
+    cache_key = f"{LLM_MODEL}:{prefix_id}:{hash(suffix)}"
+
+    if cache_key in _cache:
+        return _cache[cache_key]
+
+    out = request_llm_split(prefix, suffix)
+    _cache[cache_key] = out
     return out

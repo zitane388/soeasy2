@@ -1,0 +1,32 @@
+{
+  "product_name": [
+    "h1.ProductsH1_title__tuW0O",
+    "meta[property='og:title']"
+  ],
+  "price": [
+    "div.ProductPrice_number___3kTN span.ProductPrice_number__amount__kV83j",
+    "[class*='ProductPrice_number__amount']"
+  ],
+  "color": [
+    "div.ProductColorButton_colors__XGUaH a[title]"
+  ],
+  "color_chips": [
+    "div.ProductColorButton_colors__XGUaH a[title] span.ColorButton_colorButtonSpan__GddtQ"
+  ],
+  "size": [
+    "div.SizeButtons_list__rEiaf div.SizeButton_button__iiNop span"
+  ],
+  "image_main": [
+    "div.ProductPhotoContentsPc_galleryWrapper__Y_BBm img[data-testid='image']"
+  ],
+  "image_feature": [
+    "div.image-plus-text img"
+  ],
+  "detail": {
+    "description": "p.ItemDescription_description__e_erj",
+    "additional": "div.ItemDescription_mean__QTJTV span.ItemDescription_mean__label__R9d5B"
+  },
+  "size_table": [
+    "div.ProductSpec_sizeTableWrapperTablet__KMlv_ table"
+  ]
+}

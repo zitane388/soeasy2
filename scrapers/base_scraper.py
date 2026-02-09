@@ -16,7 +16,7 @@ class BaseScraper:
         full = url + suffix
         print("[OPEN]", full)
         open_in_chrome(full)
-        time.sleep(8)
+        time.sleep(5)
 
         start = time.time()
         while time.time() - start < timeout:

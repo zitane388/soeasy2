@@ -1,0 +1,33 @@
+{
+    "product_name": [
+        "h1 span.title",
+        "meta[property='og:title']"
+    ],
+    "price": [
+        "div[data-test='price'] span.fr-price-currency span"
+    ],
+    "color": [
+        "input[name='product-color-picker']"
+    ],
+    "size": [
+        "input[name='product-size-picker']"
+    ],
+    "soldout": {
+        "attribute": "aria-disabled",
+        "value": "true"
+    },
+    "image_main": [
+        "div.media-gallery--ec-renewal--grid img"
+    ],
+    "image_feature": [
+        "div.fr-ec-desc-features__item-image img"
+    ],
+    "detail": {
+        "features": "div.fr-ec-desc-features__item-text p",
+        "spec": [
+            "div[data-test='overview-accordion-content']",
+            "dd.fr-definition-list-description"
+        ],
+        "material": "section[data-test='material-accordion'] dd.fr-definition-list-description"
+    }
+}

@@ -19,7 +19,7 @@ class BaseBuilder:
         price = item.base_price_krw
 
         category = item.category_code
-        brand    = item.brand or "Unknown"
+        brand    = item.brand or ""
 
         # -------------------------------
         # 이미지 구성

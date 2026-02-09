@@ -9,14 +9,15 @@ import time
 from PIL import Image
 import tempfile
 from playwright.sync_api import sync_playwright
+from utils.path import p
 
-TEMPLATE_PATH = os.path.join("templates", "detail_template.html")
+TEMPLATE_PATH = p("templates", "detail_template.html")
 
 # ---- 전역 캐시: 같은 헤더는 반복 번역하지 않음 ----
 HEADER_TRANSLATE_CACHE = {}
 
 # ---- 매핑 파일 로드 ----
-MAPPING_PATH = os.path.join("templates", "size_header_mapping.json")
+MAPPING_PATH = p("templates", "size_header_mapping.json")
 if os.path.exists(MAPPING_PATH):
     with open(MAPPING_PATH, "r", encoding="utf-8") as f:
         HEADER_MAPPING = json.load(f)
@@ -156,22 +157,10 @@ def render_description_section(title, lines):
     return "\n".join(html)
 
 
+import base64
+from image_tools.image_fetcher import fetch_image_content  # 기존에 만든 고성능 로더
+
 def render_options_section(option_groups):
-    """
-    option_groups 형식:
-    [
-        {
-            "group_name": "색상",
-            "values": [
-                {"name": "...", "image": "..."},
-                ...
-            ]
-        }
-    ]
-
-    ※ 색상 그룹만 처리하며 타이틀은 출력하지 않음.
-    """
-
     if not option_groups:
         return ""
 
@@ -188,25 +177,36 @@ def render_options_section(option_groups):
         rows = []
         for opt in values:
             name = opt.get("name", "")
-            image = opt.get("image", "")
+            image_url = opt.get("image", "")
+
+            # --- [핵심 수정 부분: Base64 변환] ---
+            img_tag_src = image_url  # 기본값은 URL
+            
+            if image_url:
+                # 무인양품 이미지 차단을 피하기 위해 서버에서 직접 가져옴
+                content = fetch_image_content(image_url)
+                if content:
+                    # 바이너리 데이터를 Base64 문자열로 변환
+                    b64_data = base64.b64encode(content).decode("utf-8")
+                    # 이미지 확장자 추출 (기본값 jpg)
+                    ext = "jpeg" if "jpg" in image_url.lower() or "jpeg" in image_url.lower() else "png"
+                    img_tag_src = f"data:image/{ext};base64,{b64_data}"
+            # ------------------------------------
 
             rows.append(f"""
             <table border="1" style="border-collapse: collapse; width: 100%; margin-bottom: 25px;">
                 <tbody>
-
                     <tr>
                         <td style="padding: 10px; text-align: center; width: 100%;">
-                            <img src="{image}"
+                            <img src="{img_tag_src}"
                                  style="max-width: 100%; object-fit: contain;">
                         </td>
                     </tr>
-
                     <tr style="border-bottom: 3px double;">
                         <td style="text-align: center; padding: 10px;">
                             <strong style="font-size: 1.2rem;">{name}</strong>
                         </td>
                     </tr>
-
                 </tbody>
             </table>
             """)
@@ -289,11 +289,11 @@ def generate_detail_html(item):
     
     # 옵션 이미지 생성
     if options_html.strip():
-        options_img_path = html_to_png_options(options_html)
-        item.options_image_path = options_img_path
+        options_chart_path = html_to_png_options(options_html)
+        item.options_chart_path = options_chart_path
         options_section = f"""
         <div style="text-align:center; margin:50px 0;">
-            <img src="{options_img_path}" style="max-width:100%; object-fit:contain;">
+            <img src="{options_chart_path}" style="max-width:100%; object-fit:contain;">
         </div>
         """
     else:
@@ -319,8 +319,7 @@ def generate_detail_html(item):
     # ----------------------------------------------------
     # I) 이미지 절대경로 생성 (Chrome file:/// 전용)
     # ----------------------------------------------------
-    PROJECT_DIR = r"C:/soeasy2"
-    IMAGES_DIR = os.path.join(PROJECT_DIR, "images")
+    IMAGES_DIR = p("images").replace("\\", "/")
     IMG_PATH = IMAGES_DIR.replace("\\", "/")    # f-string 안전 버전
 
     TOP_IMAGE = f"file:///{IMG_PATH}/top_image.jpg"
@@ -348,27 +347,37 @@ def html_to_png_options(options_html: str, width=720, output_name="options_secti
     import os, threading
     from playwright.sync_api import sync_playwright
 
-    WINDLY_TEMP_DIR = os.path.join(os.getcwd(), "windly_temp")
+    WINDLY_TEMP_DIR = p("windly_temp")
     if not os.path.exists(WINDLY_TEMP_DIR):
         os.makedirs(WINDLY_TEMP_DIR)
 
     # ★ HTML 경로 windly_temp
-    html_path = os.path.join(WINDLY_TEMP_DIR, "options_src.html")
+    html_path = p("windly_temp", "options_src.html")
 
+    # full_html 부분 수정
     full_html = f"""
     <html>
     <head>
-      <meta charset="utf-8">
-      <style>
-        body {{
-            margin: 0;
-            padding: 0;
-            font-family: Arial, sans-serif;
-        }}
-      </style>
+        <meta charset="utf-8">
+        <style>
+            body {{
+                margin: 0;
+                padding: 0;
+                font-family: Arial, sans-serif;
+                background-color: white;
+            }}
+            img {{
+                image-rendering: -webkit-optimize-contrast; 
+                display: block;
+                margin: 0 auto;
+            }}
+            table {{
+                border-color: #eee; /* 테두리 색상을 조금 연하게 하면 더 깔끔해 보입니다 */
+            }}
+        </style>
     </head>
     <body>
-      {options_html}
+        {options_html}
     </body>
     </html>
     """
@@ -377,25 +386,31 @@ def html_to_png_options(options_html: str, width=720, output_name="options_secti
         f.write(full_html)
 
     # PNG 덮어쓰기
-    png_path = os.path.join(WINDLY_TEMP_DIR, output_name)
+    png_path = p("windly_temp", output_name)
 
     # ★ screenshot 코드 건드리지 않음
     result = {'path': None, 'error': None}
 
     def worker():
         try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch()
-                page = browser.new_page(viewport={"width": width, "height": 1200})
+            with sync_playwright() as p_auth:
+                browser = p_auth.chromium.launch()
+                # 🔥 device_scale_factor를 2로 설정 (해상도 2배 향상)
+                page = browser.new_page(
+                    viewport={"width": width, "height": 1200},
+                    device_scale_factor=2 
+                )
 
                 page.goto("file:///" + html_path.replace("\\", "/"))
-                page.wait_for_load_state('domcontentloaded')
+                
+                # 🔥 이미지가 실제로 화면에 렌더링될 때까지 충분히 대기
+                page.wait_for_load_state('networkidle') 
 
                 body = page.locator("body")
-                body.screenshot(path=png_path)
+                # 🔥 스크린샷 찍을 때 배율 유지
+                body.screenshot(path=png_path, animations="disabled")
 
                 browser.close()
-
             result['path'] = png_path.replace("\\", "/")
         except Exception as e:
             result['error'] = e
@@ -410,24 +425,17 @@ def html_to_png_options(options_html: str, width=720, output_name="options_secti
     return result['path']
 
 
-
-
-
-def html_to_png_final(html: str, width=720, output_name=None):
+def html_to_png_final(html: str, width=720, output_name=None, max_retry=2):
     import os, threading, time
     from playwright.sync_api import sync_playwright
 
-    WINDLY_TEMP_DIR = os.path.join(os.getcwd(), "windly_temp")
+    WINDLY_TEMP_DIR = p("windly_temp")
     if not os.path.exists(WINDLY_TEMP_DIR):
         os.makedirs(WINDLY_TEMP_DIR)
 
-    # ★ HTML을 temp 대신 windly_temp에 저장
-    html_path = os.path.join(
-        WINDLY_TEMP_DIR,
-        f"size_chart_src.html"   # 항상 같은 이름 → 덮어쓰기
-    )
+    html_path = p("windly_temp", "size_chart_src.html")
 
-    cleaned_html = html.replace('margin-bottom:60px', 'margin-bottom:0px')
+    cleaned_html = html.replace("margin-bottom:60px", "margin-bottom:0px")
 
     full_html = f"""
     <html>
@@ -450,37 +458,47 @@ def html_to_png_final(html: str, width=720, output_name=None):
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(full_html)
 
-    # PNG 이름은 고정(덮어쓰기)
     if not output_name:
         output_name = "size_chart.png"
 
-    png_path = os.path.join(WINDLY_TEMP_DIR, output_name)
+    png_path = p("windly_temp", output_name)
 
-    # ★ 아래 screenshot 로직은 절대 건드리지 않음
-    result = {"path": None, "error": None}
+    last_error = None
 
-    def worker():
-        try:
-            with sync_playwright() as p:
-                browser = p.chromium.launch()
-                page = browser.new_page(viewport={"width": width, "height": 2000})
-                page.goto("file:///" + html_path.replace("\\", "/"))
-                page.wait_for_load_state("domcontentloaded")
+    for attempt in range(1, max_retry + 1):
+        result = {"error": None}
 
-                table = page.locator("body table")
-                table.screenshot(path=png_path)
+        def worker():
+            try:
+                with sync_playwright() as p:
+                    browser = p.chromium.launch()
+                    page = browser.new_page(
+                        viewport={"width": width, "height": 2000}
+                    )
 
-                browser.close()
+                    page.goto("file:///" + html_path.replace("\\", "/"))
+                    page.wait_for_load_state("domcontentloaded")
 
-            result["path"] = png_path.replace("\\", "/")
-        except Exception as e:
-            result["error"] = e
+                    table = page.locator("body table")
 
-    t = threading.Thread(target=worker)
-    t.start()
-    t.join()
+                    # 🔒 table 실제 렌더 대기
+                    table.wait_for(state="visible", timeout=2000)
 
-    if result["error"]:
-        raise result["error"]
+                    table.screenshot(path=png_path)
+                    browser.close()
+            except Exception as e:
+                result["error"] = e
 
-    return result["path"]
+        t = threading.Thread(target=worker)
+        t.start()
+        t.join()
+
+        if not result["error"] and os.path.exists(png_path):
+            return png_path.replace("\\", "/")
+
+        last_error = result["error"]
+        print(f"[SIZE_CHART] attempt {attempt}/{max_retry} failed → retrying...")
+        time.sleep(0.4)  # ★ 타이밍 안정화 핵심
+
+    # 전부 실패
+    raise last_error

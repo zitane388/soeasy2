@@ -11,8 +11,12 @@ class PurchaseAgentBaseBuilder(BaseBuilder):
     """
 
     def build_purchase_agent_body(self, item, representative, additional):
-
-        body = super().build(item, [representative] + additional)
+    
+        body = super().build(
+            item,
+            detail_images=additional,
+            representative_uploaded_url=representative,
+        )
         origin = body["originProduct"]
 
         # ------------------------------------------------------

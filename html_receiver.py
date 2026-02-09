@@ -1,17 +1,18 @@
 import os
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from utils.path import p
 
 # ==========================================================
-#  전역 저장 변수 (ScraperManager / BaseScraper가 읽음)
+#  전역 저장 변수
 # ==========================================================
 CAPTURED_HTML = None
 CAPTURED_URL = ""
 CAPTURED_SITE = ""
 CAPTURED_MODE = ""
 
-# HTML 저장 디렉토리
-CACHE_DIR = "html_cache"
+# HTML 저장 디렉토리 (실행파일 기준)
+CACHE_DIR = p("html_cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # ==========================================================
@@ -23,16 +24,25 @@ CORS(app, supports_credentials=True)
 
 # ------------------ HTML 파일 캐시 저장 ------------------ #
 def save_html_to_cache(url: str, html: str) -> str:
-    import re
-    safe = re.sub(r"[^a-zA-Z0-9]+", "_", url)
-    filename = os.path.join(CACHE_DIR, f"{safe}.html")
+    import hashlib, json
+
+    h = hashlib.md5(url.encode("utf-8")).hexdigest()
+    filename = p("html_cache", f"{h}.html")
+
     with open(filename, "w", encoding="utf-8") as f:
         f.write(html)
+
+    # 메타 파일
+    meta = p("html_cache", f"{h}.json")
+    with open(meta, "w", encoding="utf-8") as f:
+        json.dump({"url": url}, f)
+
     return filename
 
 
+
 # ==========================================================
-#  RAW HTML 수신 (확장프로그램 → Python)
+#  RAW HTML 수신
 # ==========================================================
 @app.route("/receive_scraped_html", methods=["POST"])
 def receive_scraped_html():
@@ -54,7 +64,7 @@ def receive_scraped_html():
     print(f"Saved: {saved_path}")
     print("==============================\n")
 
-    return jsonify({"ok":True,"saved":saved_path})
+    return jsonify({"ok": True, "saved": saved_path})
 
 
 # ==========================================================
@@ -78,7 +88,7 @@ def shutdown():
 
 
 # ==========================================================
-#  Thread로 실행되는 엔트리
+#  Thread 엔트리
 # ==========================================================
 def run_html_receiver():
     print("📡 HTML Receiver running http://127.0.0.1:5001")

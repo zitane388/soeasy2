@@ -1,19 +1,45 @@
-# ===========================
-# MODEL PRELOAD
-# ===========================
-print("🔵 [MODEL] Loading BiRefNet / YOLO / rembg session...")
-
 import os
+import shutil
+import torch
 from rembg import new_session
-from ultralytics import YOLO
+from utils.path import p
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = p()
 
-# rembg 모델을 "이름"이 아니라 "파일 경로"로 직접 로드하도록 수정
-BIRENET_MODEL_PATH = os.path.join(BASE_DIR, "image_tools/models", "birefnet.onnx")
-SESSION = new_session(model=BIRENET_MODEL_PATH)   # ← 다운로드 없음 / 로컬 실행
+def clear_temp_dir(path: str):
+    if not os.path.exists(path):
+        return
+    for name in os.listdir(path):
+        full = os.path.join(path, name)
+        try:
+            if os.path.isfile(full) or os.path.islink(full):
+                os.remove(full)
+            elif os.path.isdir(full):
+                shutil.rmtree(full)
+        except Exception as e:
+            print(f"[TEMP CLEAN WARN] {full} 삭제 실패:", e)
 
-YOLO_MODEL_PATH = os.path.join(BASE_DIR, "image_tools/models", "yolov8x.pt")
-YOLO_MODEL = YOLO(YOLO_MODEL_PATH)
+# ------------------------------------------------------
+# 1) TEMP 정리 (앱 시작 시 1회)
+# ------------------------------------------------------
+clear_temp_dir(p("windly_temp"))
+clear_temp_dir(p("image_tools", "temp_img"))
+print("[TEMP] cleaned")
 
-print("🔵 [MODEL] Ready — BiRefNet(ONNX) + YOLO 로컬 실행")
+# ------------------------------------------------------
+# 2) torch.load 패치 (BiRefNet용)
+# ------------------------------------------------------
+_original_torch_load = torch.load
+
+def patched_torch_load(*args, **kwargs):
+    kwargs["weights_only"] = False
+    return _original_torch_load(*args, **kwargs)
+
+torch.load = patched_torch_load
+
+# ------------------------------------------------------
+# 3) 세그멘테이션 세션 로딩 (실사용 모델만)
+# ------------------------------------------------------
+SESSION = new_session("birefnet-portrait")
+
+print("[MODEL] Ready (BiRefNet only)")

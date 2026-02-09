@@ -1,7 +1,10 @@
 # scrapers/scraper_factory.py
 from urllib.parse import urlparse
-from scrapers.uniqlo.jp_scraper import UniqloJPScraper
-from scrapers.uniqlo.vn_scraper import UniqloVNScraper
+from scrapers.product_pages.uniqlo.jp_scraper import UniqloJPScraper
+from scrapers.product_pages.uniqlo.vn_scraper import UniqloVNScraper
+from scrapers.product_pages.gu.jp_scraper import GuJPScraper
+from scrapers.product_pages.muji.jp_scraper import MujiJPScraper
+from scrapers.product_pages.lens.lens_scraper import LensScraper
 
 class ScraperFactory:
 
@@ -12,7 +15,16 @@ class ScraperFactory:
         if "uniqlo.com" in host:
             if "/jp/" in path:
                 return UniqloJPScraper()
-            if "/vn/" in path or "/en/" in path:
+            if "/vn/en/" in path:
                 return UniqloVNScraper()
+        if "gu-global.com" in host:
+            if "/jp/" in path:
+                return GuJPScraper()
+        if "muji.com" in host:
+            if "/jp/" in path:
+                return MujiJPScraper()
 
         return None
+
+    def get_lens_scraper(self):
+        return LensScraper()

@@ -1,0 +1,39 @@
+{
+    "product_name": [
+        "h1",
+        "meta[property='og:title']"
+    ],
+    "price": [
+        ".fr-ec-price-text",
+        ".fr-ec-price-text--large",
+        ".fr-ec-price-text--color-promotional",
+        "[data-product-price-with-tax]",
+        "[data-product-non-sale-price-with-tax]",
+        "[data-product-price]",
+        "[data-product-non-sale-price]",
+        ".price",
+        ".price-text"
+    ],
+    "color": [
+        "button[data-testid='ITOChip']"
+    ],
+    "size": [
+        ".size-chip-wrapper button[data-testid='ITOChip']"
+    ],
+    "image_main": [
+        "div.media-gallery--grid img",
+        "div.media-enhancements img"
+    ],
+    "image_feature": [
+        "div[data-testid='ECGrid'] div[data-testid='ITOImage'] img"
+    ],
+    "detail": {
+        "features": "#productFeatures ~ div p",
+        "spec": "#productLongDescription ~ div p",
+        "material": "#productMaterialDescription ~ div p"
+    },
+    "soldout": {
+        "attribute": "aria-disabled",
+        "value": "true"
+    }
+}
