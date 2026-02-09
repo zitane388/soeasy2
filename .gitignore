@@ -1,20 +1,16 @@
-# Python
+# virtual env & cache
 venv/
 __pycache__/
 *.pyc
 
-# Env
-.env
+# model weights (절대 커밋 금지)
+*.pt
+*.pth
+image_tools/models/
 
-# Temp / Cache
+# temp
+temp_img/
 windly_temp/
 html_cache/
-debug_stages/
-
-# Build
-build/
-dist/
-
-# OS
-.DS_Store
-Thumbs.db
+debug/
+.local-browsers/
