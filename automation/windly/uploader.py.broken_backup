@@ -1,0 +1,550 @@
+import time
+import os
+import re
+from playwright.sync_api import sync_playwright
+
+from automation.windly_config_loader import get_windly_temp_dir
+from .clipboard_utils import copy_files_to_clipboard, copy_image_file, copy_text
+from .editor_utils import move_cursor_to_bottom, apply_font_large, open_detail_editor, clear_editor
+from .navigator import WINDLY_LOGIN_URL, WINDLY_INTEREST_URL, goto_interest_page, close_event_popup
+from .temp_file_manager import download_temp_images, cleanup_windly_temp
+
+
+class WindlyUploader:
+    def __init__(self, user_id, user_pw, windly_temp_path=None):
+        self.user_id = user_id
+        self.user_pw = user_pw
+        self.browser = None
+        self.page = None
+        self.p = None
+
+        self.windly_temp_path = windly_temp_path or get_windly_temp_dir()
+        if not os.path.exists(self.windly_temp_path):
+            os.makedirs(self.windly_temp_path, exist_ok=True)
+        self.windly_temp_path = os.path.abspath(self.windly_temp_path)
+
+    # --------------------------------------------------------
+    def start_browser(self):
+        self.p = sync_playwright().start()
+        self.browser = self.p.chromium.launch(headless=False)
+        self.page = self.browser.new_page()
+
+    # --------------------------------------------------------
+    def login(self):
+        self.page.goto(WINDLY_LOGIN_URL)
+        self.page.wait_for_selector("input[name='email']")
+
+        self.page.fill("input[name='email']", self.user_id)
+        self.page.fill("input[name='password']", self.user_pw)
+        self.page.click("button[type='submit']")
+        time.sleep(2)
+
+    # --------------------------------------------------------
+    def prepare(self):
+        if not self.browser:
+            self.start_browser()
+        self.login()
+        goto_interest_page(self.page)
+
+    # --------------------------------------------------------
+    def select_tag(self, tag_text):
+        search_box = self.page.locator("input[placeholder='?곹뭹紐?寃??]")
+        search_box.wait_for(state="visible")
+
+        search_box.fill("")
+        time.sleep(0.3)
+        search_box.type(tag_text)
+        time.sleep(0.5)
+
+        self.page.keyboard.press("Enter")
+        time.sleep(5)
+
+        cards = self.page.locator("div.product-card")
+        cnt = cards.count()
+
+        if cnt == 0:
+            print("寃??寃곌낵 ?놁쓬")
+            return False
+
+        for i in range(cnt):
+            card = cards.nth(i)
+            text = card.inner_text()
+
+            if tag_text.replace(" ", "") in text.replace(" ", ""):
+                card.click()
+                time.sleep(1)
+                return True
+
+        return False
+    
+    # ============================================================
+    # 移댄뀒怨좊━ ?쒗뵆由??먮룞 ?곸슜 (?띾룄 理쒖쟻??踰꾩쟾)
+    # ============================================================
+    def apply_category_template(self, template_key: str):
+        if not template_key:
+            print("[Windly] template_key ?놁쓬 ??移댄뀒怨좊━ ?ㅽ궢")
+            return
+
+        page = self.page
+        print(f"[Windly] 移댄뀒怨좊━ ?쒗뵆由??곸슜 ?쒕룄: {template_key}")
+
+        # 1截뤴깵 移댄뀒怨좊━/?쒓렇 寃??
+        page.locator("button:has-text('移댄뀒怨좊━/?쒓렇 寃??)").click(force=True)
+        time.sleep(0.3)
+
+        # 2截뤴깵 ?쒗뵆由?遺덈윭?ㅺ린 (?ㅻ뜑 踰꾪듉)
+        page.locator("button:has-text('?쒗뵆由?遺덈윭?ㅺ린')").first.click(force=True)
+        time.sleep(0.3)
+
+        # 3截뤴깵 ?앹뾽 ?뺣낫
+        popup = page.locator(
+            "div.ezzy6es7[width='600px']"
+        ).filter(
+            has=page.locator("div.ezzy6es5:has-text('?쒗뵆由?遺덈윭?ㅺ린')")
+        ).last
+
+        popup.wait_for(state="visible", timeout=5000)
+
+        # 4截뤴깵 ?쒗뵆由??쒕ぉ 寃??
+        search_input = popup.locator('input[placeholder="?쒗뵆由??쒕ぉ 寃??]')
+        search_input.fill("")
+        search_input.type(template_key, delay=30)
+        page.keyboard.press("Enter")
+
+        # 5截뤴깵 backdrop??"?덉쓣 ?뚮쭔" 吏㏐쾶 ?쒓굅 ?湲?
+        if page.locator("div.backdrop_visible").count() > 0:
+            try:
+                page.wait_for_selector(
+                    "div.backdrop_visible",
+                    state="detached",
+                    timeout=2000
+                )
+            except:
+                pass
+
+        # 6截뤴깵 泥?踰덉㎏ ?쒗뵆由?遺덈윭?ㅺ린 (利됱떆 ?대┃)
+        popup.locator(
+            "div.e1qo1yn83 >> button:has-text('遺덈윭?ㅺ린')"
+        ).first.click(force=True)
+
+        # 7截뤴깵 遺덈윭?ㅺ린 ??backdrop 泥섎━ (吏㏐쾶)
+        if page.locator("div.backdrop_visible").count() > 0:
+            try:
+                page.wait_for_selector(
+                    "div.backdrop_visible",
+                    state="detached",
+                    timeout=2000
+                )
+            except:
+                pass
+
+        # 8截뤴깵 ?곸슜?섍린 踰꾪듉 利됱떆 ?대┃
+        page.locator(
+            "button:has(span:has-text('?곸슜?섍린'))"
+        ).click(force=True)
+
+        print(f"[Windly] 移댄뀒怨좊━ ?쒗뵆由??곸슜 ?꾨즺: {template_key}")
+
+
+
+    # ============================================================
+    # ?먮낯 ?곹뭹 留곹겕 ?섏젙
+    # ============================================================
+    def update_original_url(self, url: str):
+        print("[Windly] ?곹뭹 ?먮낯 URL ?섏젙 ?쒖옉")
+
+        self.page.locator("button.secondary.css-1k9mhp9.e2kkri01").click()
+        time.sleep(0.8)
+
+        self.page.locator("div.css-7w0ojd.e10da43g1 button").nth(1).click()
+        time.sleep(1)
+
+        input_box = self.page.locator("input[placeholder='??留곹겕瑜??낅젰?댁＜?몄슂']")
+        input_box.fill("")
+        input_box.type(url)
+        time.sleep(0.6)
+
+        self.page.get_by_role("button", name="??ν븯湲?).click()
+
+        print(f"[Windly] ?먮낯 二쇱냼 ?낅뜲?댄듃 ?꾨즺 ??{url}")
+        time.sleep(1.5)    # ============================================================
+    # ?먮ℓ媛 ?????    # ============================================================
+    def apply_price_save(self, item=None):
+        print("[Windly] ?먮ℓ媛 ???대룞 諛?????쒖옉")
+
+        self.page.get_by_role("button", name="?먮ℓ媛").click()
+        time.sleep(0.5)
+
+        self.page.get_by_role("button", name="?곹뭹 ?먮ℓ媛 蹂寃?).click()
+        time.sleep(0.5)
+
+        try:
+            source_currency_code = str(getattr(item, "price_currency", "") or "").strip().upper()
+            target_currency_code = "KRW" if source_currency_code == "VND" else source_currency_code
+
+            if target_currency_code:
+                boxes = self.page.locator("div.e1lwwc7f4:has(button.css-1mb5vlr)")
+                currency_box = None
+                for i in range(boxes.count()):
+                    b = boxes.nth(i)
+                    btn = b.locator("button.css-1mb5vlr").first
+                    if btn.count() > 0 and btn.is_visible():
+                        currency_box = b
+                        break
+                if currency_box is None:
+                    currency_box = boxes.first
+                    currency_box.wait_for(state="visible", timeout=3000)
+
+                target_radio = currency_box.locator(
+                    f"input[type='radio'][value='{target_currency_code}']"
+                ).first
+                if target_radio.count() > 0 and not target_radio.is_checked():
+                    target_radio.check(force=True, timeout=3000)
+                    time.sleep(0.12)
+
+                checked = currency_box.locator("input[type='radio']:checked").first
+                current_code = (checked.get_attribute("value") or "").strip().upper() if checked.count() > 0 else ""
+                if current_code == target_currency_code:
+                    print(f"[Windly] ?듯솕 ?ㅼ젙 ?꾨즺: {source_currency_code} -> {current_code}")
+                else:
+                    print(f"[Windly][WARN] ?듯솕 遺덉씪移?target={target_currency_code}, current={current_code}")
+            else:
+                print("[Windly][WARN] ?듯솕 肄붾뱶 ?놁쓬")
+        except Exception as e:
+            print(f"[Windly][WARN] ?듯솕 ?좏깮 ?ㅽ뙣: {e}")
+
+        self.page.get_by_role("button", name="???).click()
+
+        print("[Windly] ?먮ℓ媛 ????꾨즺")
+        time.sleep(0.3)
+
+    # ============================================================
+    # ?먭? ?쇨큵 蹂寃?    # ============================================================
+    def apply_original_cost_bulk(self, item=None):
+        def parse_cost_value(raw):
+            if raw is None:
+                return None
+            if isinstance(raw, (int, float)):
+                return int(raw)
+            s = str(raw)
+            nums = re.findall(r"\d[\d,]*", s)
+            if not nums:
+                return None
+            digits = re.sub(r"[^\d]", "", nums[0])
+            return int(digits) if digits else None
+
+        source_currency_code = str(getattr(item, "price_currency", "") or "").strip().upper() if item else ""
+        if source_currency_code == "VND" and item:
+            raw_cost = getattr(item, "base_price_krw", None)
+        else:
+            raw_cost = getattr(item, "base_price", None) if item else None
+
+        cost_value = parse_cost_value(raw_cost)
+        if not cost_value:
+            print(f"[Windly][WARN] ?먭? ?낅젰媛??놁쓬: base_price={raw_cost}")
+            return
+
+        print(f"[Windly] ?먭? ?쇨큵 蹂寃??쒖옉: {cost_value}")
+        try:
+            self.page.get_by_role("button", name="?쇨큵 蹂寃?).first.click()
+            time.sleep(0.4)
+
+            self.page.get_by_role("button", name="?먭? ?쇨큵 蹂寃?).first.click()
+            time.sleep(0.6)
+
+            popup = self.page.locator("div.ezzy6es7").filter(
+                has=self.page.locator("div.ezzy6es5:has-text('?먭? ?쇨큵 蹂寃?)")
+            ).last
+            popup.wait_for(state="visible", timeout=5000)
+
+            input_box = popup.locator("input[type='text']").first
+            input_box.click()
+            input_box.press("Control+A")
+            input_box.fill("")
+            input_box.type(str(cost_value), delay=10)
+            time.sleep(0.2)
+
+            popup.get_by_role("button", name="?곸슜?섍린").first.click()
+            time.sleep(0.8)
+            print("[Windly] ?먭? ?쇨큵 蹂寃??꾨즺")
+        except Exception as e:
+            print(f"[Windly][WARN] ?먭? ?쇨큵 蹂寃??ㅽ뙣: {e}")
+    # --------------------------------------------------------
+    def run_for_item(self, item):
+        try:
+            print(f"[Windly] '{item.final_name}' ?묒뾽 ?쒖옉 - ?꾩떆 ?대뜑 ?뺣━ 以?..")
+            cleanup_windly_temp(self.windly_temp_path)
+
+            # 釉뚮씪?곗? ???ㅽ뻾
+            self.p = sync_playwright().start()
+            self.browser = self.p.chromium.launch(headless=False)
+            self.page = self.browser.new_page()
+
+            # 濡쒓렇???섏씠吏 吏꾩엯
+            self.page.goto(WINDLY_LOGIN_URL)
+
+            # ======================================================
+            # 濡쒓렇???낅젰 ?꾩뿉 PNG ?앹꽦 (?먮낯 濡쒖쭅 ?좎?)
+            # ======================================================
+            from utils.detail_description_generator import (
+                render_options_section,
+                html_to_png_options,
+                html_to_png_final
+            )
+            from utils.file_stabilizer import stabilize_png_file
+
+            item.options_chart_path = None
+            item.size_chart_image_path = None
+            if not getattr(item, "options_chart_path", None):
+                options_html = render_options_section(item.parsed_raw.get("options", []))
+                if options_html and options_html.strip():
+                    item.options_chart_path = os.path.abspath(
+                        stabilize_png_file(html_to_png_options(options_html))
+                    )
+                    print("[Windly PRE] ?듭뀡??PNG ?앹꽦 ?꾨즺")
+                else:
+                    print("[Windly PRE] ?듭뀡 ?곗씠???놁쓬")
+
+            if not getattr(item, "size_chart_image_path", None):
+                raw_size_html = (
+                    getattr(item, "size_html", None)
+                    or item.parsed_raw.get("size_html", "")
+                )
+                if raw_size_html and raw_size_html.strip():
+                    item.size_chart_image_path = os.path.abspath(
+                        stabilize_png_file(html_to_png_final(raw_size_html))
+                    )
+                    print("[Windly PRE] ?ъ씠利덊몴 PNG ?앹꽦 ?꾨즺")
+                else:
+                    print("[Windly PRE] ?ъ씠利덊몴 ?곗씠???놁쓬")
+
+            # ======================================================
+            # 濡쒓렇??
+            # ======================================================
+            self.page.fill("input[name='email']", self.user_id)
+            self.page.fill("input[name='password']", self.user_pw)
+            self.page.click("button[type='submit']")
+            time.sleep(2)
+
+            self.page.goto(WINDLY_INTEREST_URL, wait_until="domcontentloaded", timeout=90000)
+            print("[Windly] ?섏씠吏 ?곌껐 ?꾨즺")
+
+            close_event_popup(self.page)
+
+            if not item.final_name:
+                return False
+
+            # ??寃????移대뱶 ?대┃
+            if not self.select_tag(item.final_name):
+                print("[Windly] ?쒓렇 留ㅼ묶 ?ㅽ뙣 ???ㅽ궢")
+                return False
+            time.sleep(1)
+            
+            # ??移댄뀒怨좊━ ?쒗뵆由??곸슜
+            template_key = getattr(item, "matched_category_template_key", None)
+            if template_key:
+                self.apply_category_template(template_key)
+                time.sleep(1)
+            else:
+                print("[Windly] matched_category_template_key ?놁쓬 ??移댄뀒怨좊━ ?ㅽ궢")
+            time.sleep(5)
+            
+            # ???먮낯URL ?낅뜲?댄듃
+            self.update_original_url(item.url)
+
+            # ??1 ?먮ℓ媛 ???
+            self.apply_price_save(item)
+            self.apply_original_cost_bulk(item)
+
+            # ???곸꽭?섏씠吏 ?몄쭛李?
+            open_detail_editor(self.page)
+            editor = self.page.locator("div.ql-editor")
+            editor.wait_for(state="visible")
+
+            # ???댁슜 珥덇린??
+            clear_editor(self.page)
+            time.sleep(0.2)
+
+            # ??1 ?곹뭹紐?遺숈뿬?ｊ린
+            copy_text(item.final_name)
+            editor.click()
+            self.page.keyboard.press("Enter")
+            self.page.keyboard.press("Enter")
+            self.page.keyboard.press("Enter")
+            time.sleep(0.1)
+            self.page.keyboard.press("Control+V")
+            time.sleep(0.3)
+
+            # ??2 ?곹뭹紐??꾩껜 ?좏깮
+            self.page.keyboard.down("Control")
+            self.page.keyboard.press("A")
+            self.page.keyboard.up("Control")
+            time.sleep(0.2)
+
+            # ??3 湲???ш쾶 ?곸슜
+            apply_font_large(self.page)
+            time.sleep(0.2)
+
+            move_cursor_to_bottom(self.page)
+            self.page.keyboard.press("Enter")
+            self.page.keyboard.press("Enter")
+            self.page.keyboard.press("Enter")
+            time.sleep(0.5)
+
+            # ======================================================
+            # ???곹뭹 ?대?吏 ?낅젰 (?듭뀡 ?대?吏 ?쒖쇅, 濡쒓퀬 ?쒓굅 諛섏쁺)
+            # ======================================================
+            print("[Windly] ?대?吏 ?낅줈???쒖옉 (1?μ뵫)")
+
+            # ------------------------------------------------------
+            # 1. ?듭뀡 ?대?吏 URL ?섏쭛 (?먮낯 湲곗?)
+            # ------------------------------------------------------
+            option_image_urls = set()
+
+            for opt in item.parsed_raw.get("options", []):
+                for v in opt.get("values", []):
+                    img = v.get("image")
+                    if isinstance(img, str) and img.startswith("http"):
+                        option_image_urls.add(img)
+
+            # ------------------------------------------------------
+            # 2. logo_job_results 湲곕컲 ?뚯씪 ???먮낯 URL 留ㅽ븨
+            # ------------------------------------------------------
+            file_to_original_url = {}
+
+            for r in getattr(item, "logo_job_results", []) or []:
+                url = r.get("url")
+                fp = r.get("file_path")
+                if url and fp:
+                    file_to_original_url[os.path.abspath(fp)] = url
+
+            # ------------------------------------------------------
+            # 3. ?듭뀡 ?대?吏 ?먮퀎 ?⑥닔
+            # ------------------------------------------------------
+            def is_option_image(src: str) -> bool:
+                # URL??寃쎌슦
+                if src.startswith("http"):
+                    return src in option_image_urls
+
+                # ?뚯씪 寃쎈줈??寃쎌슦 ???먮낯 URL濡??섏썝
+                src_abs = os.path.abspath(src)
+                original_url = file_to_original_url.get(src_abs)
+                if original_url:
+                    return original_url in option_image_urls
+
+                return False
+
+            # ------------------------------------------------------
+            # 4. 理쒖쥌 ?낅줈??????대?吏 寃곗젙
+            # ------------------------------------------------------
+            upload_sources = [
+                src for src in (item.final_image_sources or [])
+                if not is_option_image(src)
+            ]
+
+            # ------------------------------------------------------
+            # 5. URL / ?뚯씪 ?쇳빀 ?ㅼ슫濡쒕뱶 泥섎━
+            # ------------------------------------------------------
+            imgs = []
+
+            for src in upload_sources:
+                if src.startswith("http"):
+                    paths = download_temp_images([src], self.windly_temp_path)
+                    imgs.extend(paths)
+                else:
+                    imgs.append(os.path.abspath(src))
+
+            # ------------------------------------------------------
+            # 6. ????대?吏(媛怨??몃꽕?? ?곗꽑 諛곗튂
+            # ------------------------------------------------------
+            thumb = getattr(item, "make_thumbnail_img", None)
+            if thumb:
+                thumb_path = os.path.abspath(thumb)
+                if os.path.exists(thumb_path):
+                    imgs = [p for p in imgs if os.path.abspath(p) != thumb_path]
+                    imgs.insert(0, thumb_path)
+
+            # ------------------------------------------------------
+            # 7. ?낅줈???ㅽ뻾
+            # ------------------------------------------------------
+            print("[Windly] 理쒖쥌 ?대?吏 ?쒖꽌:")
+            for i, pth in enumerate(imgs):
+                print(f"  {i+1}. {os.path.basename(pth)}")
+
+            for img_path in imgs:
+                copy_image_file(img_path)
+                editor.click()
+                move_cursor_to_bottom(self.page)
+                self.page.keyboard.press("Control+V")
+                time.sleep(0.5)
+
+            time.sleep(2)
+
+
+            move_cursor_to_bottom(self.page)
+            self.page.keyboard.press("Enter")
+            self.page.keyboard.press("Enter")
+            self.page.keyboard.press("Enter")
+            self.page.keyboard.press("Enter")
+            time.sleep(0.5)
+
+            # ???곸꽭?ㅻ챸
+            copy_text(item.final_detail_text or "")
+            editor.click()
+            move_cursor_to_bottom(self.page)
+            self.page.keyboard.press("Enter")
+            time.sleep(0.5)
+            self.page.keyboard.press("Control+V")
+            time.sleep(2)
+
+            self.page.keyboard.press("Enter")
+            time.sleep(0.3)
+
+            # ???ъ씠利덊몴
+            if item.size_chart_image_path:
+                print("[WINDLY] ?ъ씠利덊몴 遺숈뿬?ｊ린 ?쒕룄")
+                copy_image_file(item.size_chart_image_path)
+                editor.click()
+                move_cursor_to_bottom(self.page)
+                self.page.keyboard.press("Enter")
+                time.sleep(0.5)
+                self.page.keyboard.press("Control+V")
+                self.page.keyboard.press("Enter")
+                time.sleep(2)
+            else:
+                print("[WINDLY] ?ъ씠利덊몴 ?놁쓬 ???ㅽ궢")
+
+            # ???듭뀡??
+            if item.options_chart_path:
+                print("[WINDLY] ?듭뀡??遺숈뿬?ｊ린 ?쒕룄")
+                copy_image_file(item.options_chart_path)
+                editor.click()
+                move_cursor_to_bottom(self.page)
+                self.page.keyboard.press("Enter")
+                time.sleep(0.5)
+                self.page.keyboard.press("Control+V")
+                self.page.keyboard.press("Enter")
+                time.sleep(2)
+            else:
+                print("[WINDLY] ?듭뀡???놁쓬 ???ㅽ궢")
+
+            print("===== Windly ?낅젰 ?꾨즺 =====")
+            return True
+
+        except Exception as e:
+            print("[WINDLY ERROR]", e)
+            return False
+
+        finally:
+            try:
+                if hasattr(self, "page") and self.page:
+                    self.page.close()
+                if hasattr(self, "browser") and self.browser:
+                    self.browser.close()
+                if hasattr(self, "p") and self.p:
+                    self.p.stop()
+            except Exception:
+                pass
+
+            print("[Windly] ?몄뀡 醫낅즺 ?꾨즺")
+            cleanup_windly_temp(self.windly_temp_path)

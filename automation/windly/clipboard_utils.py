@@ -1,9 +1,12 @@
 import os
 import struct
 import io
+import tempfile
 import win32clipboard
 import win32con
 from PIL import Image
+from automation.windly_config_loader import get_windly_temp_dir
+import hashlib
 
 
 def create_explorer_hdrop(file_list):
@@ -36,7 +39,12 @@ def copy_image_file(path):
         return
 
     img = Image.open(path)
-    print(f"[CLIPBOARD][IMG] opened image size={img.size}, mode={img.mode}")
+    try:
+        with open(path, "rb") as f:
+            md5 = hashlib.md5(f.read()).hexdigest()
+        print(f"[CLIPBOARD][IMG] opened image size={img.size}, mode={img.mode}, md5={md5}")
+    except Exception as e:
+        print(f"[CLIPBOARD][IMG] opened image size={img.size}, mode={img.mode}, md5=ERR ({e})")
 
     if img.mode != "RGB":
         img = img.convert("RGB")
@@ -61,6 +69,34 @@ def copy_image_file(path):
         win32clipboard.SetClipboardData(win32con.CF_DIB, data)
         win32clipboard.CloseClipboard()
         print(f"[CLIPBOARD][IMG] CF_DIB set SUCCESS")
+        # Debug: verify clipboard content (optional)
+        if os.environ.get("WINDLY_DEBUG_CLIPBOARD") == "1":
+            try:
+                win32clipboard.OpenClipboard()
+                dib = win32clipboard.GetClipboardData(win32con.CF_DIB)
+                win32clipboard.CloseClipboard()
+
+                # Rebuild BMP header from DIB
+                header_size = struct.unpack("<I", dib[:4])[0]
+                bmp_size = 14 + len(dib)
+                offset = 14 + header_size
+                bmp_header = struct.pack("<2sIHHI", b"BM", bmp_size, 0, 0, offset)
+                bmp_bytes = bmp_header + dib
+
+                img = Image.open(io.BytesIO(bmp_bytes))
+                img.load()
+
+                temp_dir = get_windly_temp_dir() if os.path.isdir(get_windly_temp_dir()) else tempfile.gettempdir()
+                os.makedirs(temp_dir, exist_ok=True)
+                out_path = os.path.join(temp_dir, "clipboard_last.png")
+                img.save(out_path)
+                print(f"[CLIPBOARD][IMG][DEBUG] saved clipboard image -> {out_path}")
+            except Exception as e:
+                try:
+                    win32clipboard.CloseClipboard()
+                except Exception:
+                    pass
+                print(f"[CLIPBOARD][IMG][DEBUG] clipboard verify failed: {e}")
     except Exception as e:
         print(f"[CLIPBOARD][IMG][ERROR] clipboard failed:", e)
 

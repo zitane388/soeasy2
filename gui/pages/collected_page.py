@@ -48,7 +48,7 @@ class CollectedPage:
             text="전체 선택",
             variable=self.select_all_var,
             command=toggle_select_all
-        ).pack(side="left", padx=10)
+        ).pack(side="left", padx=5)
 
         ttk.Button(
             header,
@@ -57,7 +57,7 @@ class CollectedPage:
                 target=self.generate_all_thumbnails,
                 daemon=True
             ).start()
-        ).pack(side="left", padx=10)
+        ).pack(side="left", padx=5)
         
         ttk.Button(
             header,
@@ -66,7 +66,7 @@ class CollectedPage:
                 target=self.remove_logo_background_for_checked,
                 daemon=True
             ).start()
-        ).pack(side="left", padx=10)
+        ).pack(side="left", padx=5)
 
         ttk.Button(
             header,
@@ -75,7 +75,7 @@ class CollectedPage:
                 target=self.upload_to_naver,
                 daemon=True
             ).start()
-        ).pack(side="left", padx=10)
+        ).pack(side="left", padx=5)
 
         ttk.Button(
             header,

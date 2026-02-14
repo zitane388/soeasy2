@@ -10,6 +10,7 @@ from utils.path import p
 from gui.widgets.scroll_frame import ScrollFrame
 from gui.widgets.thumbnail_helper import load_thumbnail_async
 from gui.widgets.image_loader import load_image_async
+from image_tools.image_source_resolver import resolve_item_image_sources
 
 from pname_keyword import extract_keywords
 from utils.product_name_generator import generate_final_name
@@ -86,12 +87,7 @@ class NamePanel(ttk.LabelFrame):
         # ================================
         # 3. 이미지 소스 결정 (중요)
         # ================================
-        sources = (
-            item.final_image_sources
-            if isinstance(getattr(item, "final_image_sources", None), list)
-            and item.final_image_sources
-            else item.parsed_raw.get("images", [])
-        )
+        sources = resolve_item_image_sources(item)
 
         all_imgs = []
         for src in sources:
@@ -101,7 +97,14 @@ class NamePanel(ttk.LabelFrame):
                 continue
             all_imgs.append(src)
 
-        print(f"[DETAIL] 이미지 {len(all_imgs)}개 (옵션 제외)")
+        try:
+            local_cnt = sum(1 for u in all_imgs if isinstance(u, str) and os.path.exists(u))
+            print(f"[DETAIL] 이미지 {len(all_imgs)}개 (옵션 제외) local={local_cnt} url={len(all_imgs)-local_cnt}")
+            for i, u in enumerate(all_imgs[:6]):
+                flag = "LOCAL" if isinstance(u, str) and os.path.exists(u) else "URL"
+                print(f"[DETAIL] src[{i}] {flag} {u}")
+        except Exception as e:
+            print("[DETAIL] image source log failed:", e)
 
         # ================================
         # 4. UI 렌더링
@@ -140,7 +143,10 @@ class NamePanel(ttk.LabelFrame):
                 else:
                     label.config(text="LOAD_FAIL")
 
-            load_thumbnail_async(src, THUMB, cb, root)
+            if isinstance(src, str) and src.startswith("http"):
+                load_thumbnail_async(src, THUMB, cb, root)
+            else:
+                load_image_async(src, THUMB, cb, root)
 
             col += 1
             if col == COLUMN:

@@ -1,0 +1,68 @@
+{
+  "brand": "supersports",
+  "country": "jp",
+  "sample_urls": [
+    "https://www.supersports.com/ja-jp/xebio/products/A-10893435601/",
+    "https://www.supersports.com/ja-jp/golf/products/B-10891829101/",
+    "https://www.supersports.com/ja-jp/lbreath/products/C-10871402301/"
+  ],
+  "mode": "html_blocks",
+  "html_blocks": [
+    {
+      "block_name": "name_area",
+      "purpose": "상품명 영역",
+      "html": "<span class=\"jsx-8194284 product-name\">ランニングシューズ ジョギングシューズ ズーム ボメロ 18 ホワイト ブルー HM6803-109 スニーカー</span>"
+    },
+    {
+      "block_name": "brand_area",
+      "purpose": "product brand tag block",
+      "html": "<div class=\"jsx-4000204881 product-number\"><p class=\"jsx-4000204881 product-item\"><span class=\"jsx-4000204881 title\">????</span><span class=\"jsx-4000204881 description\"><a class=\"jsx-4000204881\" href=\"/ja-jp/xebio/products/?brand=004278\">???</a></span></p><p class=\"jsx-4000204881 product-item\"><span class=\"jsx-4000204881 title\">??ID</span><span class=\"jsx-4000204881 description\">A-10893435601</span></p><p class=\"jsx-4000204881 product-item\"><span class=\"jsx-4000204881 title\">??????</span><span class=\"jsx-4000204881 description\">HM6803-109</span></p></div>"
+    },
+    {
+      "block_name": "model_area",
+      "purpose": "product model number tag block",
+      "html": "<div class=\"jsx-4000204881 product-number\"><p class=\"jsx-4000204881 product-item\"><span class=\"jsx-4000204881 title\">????</span><span class=\"jsx-4000204881 description\"><a class=\"jsx-4000204881\" href=\"/ja-jp/xebio/products/?brand=004278\">???</a></span></p><p class=\"jsx-4000204881 product-item\"><span class=\"jsx-4000204881 title\">??ID</span><span class=\"jsx-4000204881 description\">A-10893435601</span></p><p class=\"jsx-4000204881 product-item\"><span class=\"jsx-4000204881 title\">??????</span><span class=\"jsx-4000204881 description\">HM6803-109</span></p></div>"
+    },
+    {
+      "block_name": "price_area",
+      "purpose": "가격 영역",
+      "html": "<strong class=\"jsx-2483481952 sale\">￥9,990</strong>"
+    },
+    {
+      "block_name": "images_area",
+      "purpose": "대표/상세 이미지 영역",
+      "html": "<div class=\"jsx-126236434 jsx-3862564141 thumbnails\"><button class=\"jsx-126236434 jsx-3862564141 thumbnail selected\"><img src=\"https://www.supersports.com/ec/img/1/7910301/8934356_l.jpg\" alt=\"product\" /></button></div>"
+    },
+    {
+      "block_name": "options_area",
+      "purpose": "옵션 축/값이 들어있는 영역",
+      "html": "<ul class=\"jsx-1357507825 wrap select\"><li class=\"jsx-1357507825 color\"><p class=\"jsx-1357507825 label\">カラー：ホワイト×ブルー</p></li><li class=\"jsx-1357507825 size multiple\"><p class=\"jsx-1357507825 label\">サイズ：</p><button class=\"jsx-967679275 select-size\">25.0</button><button class=\"jsx-967679275 select-size disabled\" disabled>26.5</button></li></ul>"
+    },
+    {
+      "block_name": "description_area",
+      "purpose": "상세설명 영역",
+      "html": "<div id=\"spec-content\" class=\"jsx-657499108 jsx-2178459613 content expanded\"><div class=\"spec\">【実寸サイズ】...（중략）...</div></div>"
+    }
+  ],
+  "initial_data_scripts": [
+    {
+      "script_name": "__NEXT_DATA__",
+      "purpose": "페이지 초기 상태 데이터(JSON)",
+      "html": "<script id=\"__NEXT_DATA__\" type=\"application/json\">{\"props\":{\"pageProps\":{\"product\":{\"id\":\"A-10893435601\",\"name\":\"ナイキ（NIKE）...\",\"price\":{\"taxInclusive\":9990,\"currency\":\"JPY\"},\"features\":[{\"type\":\"color\",\"alternatives\":[{\"code\":\"00113\",\"text\":\"ホワイト×ブルー\",\"status\":\"in-stock\"}]},{\"type\":\"size\",\"alternatives\":[{\"code\":\"00113_01049_0\",\"text\":\"２５．０\",\"stock\":42,\"status\":\"in-stock\"},{\"code\":\"00113_01052_0\",\"text\":\"２６．５\",\"stock\":0,\"status\":\"out-of-stock\"}]}],\"media\":[{\"imgUrl\":\"https://www.supersports.com/ec/img/1/7910301/8934356_l.jpg\"}]}}}}</script>"
+    }
+  ],
+  "dom_snapshots": [
+    {
+      "snapshot_name": "price_before",
+      "action": "초기 진입 시 가격 노드",
+      "html": "<strong class=\"jsx-2483481952 sale\">￥9,990</strong>"
+    }
+  ],
+  "har_file": null,
+  "notes": [
+    "sample_urls에는 정상 상품 2개 + 옵션 복잡/품절 케이스 1개를 넣어주세요.",
+    "html_blocks / dom_snapshots 중 하나만 정확하게 제공해도 됩니다.",
+    "HAR가 없어도 initial_data_scripts + dom_snapshots가 있으면 구현 가능합니다.",
+    "har_file은 옵션 클릭 시점 네트워크가 포함된 HAR 경로를 넣어주세요."
+  ]
+}

@@ -34,8 +34,11 @@ def reload_formatter():
     PROMPTS = {
         "DETAIL": formatter_module.DETAIL_DESCRIPTION_PROMPT,
         "OPTION": formatter_module.PRODUCT_OPTION_PROMPT,
+        "OPTION_GROUP_NAME": formatter_module.PRODUCT_OPTION_GROUP_NAME_PROMPT,
         "NAME": formatter_module.PRODUCT_NAME_PROMPT,
         "NAME_VISION": formatter_module.PRODUCT_NAME_PROMPT_VISION,
+        "SEARCH_COMPACT": formatter_module.SEARCH_COMPACT_PROMPT,
+        "BRAND_CANONICAL": formatter_module.BRAND_CANONICAL_PROMPT,
         "CATEGORY_FALLBACK": formatter_module.CATEGORY_PICK_PROMPT,
         "CATEGORY_DETAIL_FILTER": formatter_module.CATEGORY_DETAIL_FILTER_PROMPT,
         "ATTRIBUTE_PICK": formatter_module.ATTRIBUTE_PICK_PROMPT,

@@ -11,6 +11,26 @@ def resolve_item_image_sources(item):
     log.debug(f"[RESOLVE] final_image_sources={type(final_sources)} len={len(final_sources) if isinstance(final_sources, list) else 'N/A'}")
 
     if isinstance(final_sources, list) and final_sources:
+        # logo_job_results가 있으면, 원본 URL을 로컬 파일로 치환
+        logo_results = getattr(item, "logo_job_results", None)
+        if isinstance(logo_results, list) and logo_results:
+            url_to_file = {}
+            for r in logo_results:
+                url = r.get("url")
+                fp = r.get("file_path")
+                if url and fp and isinstance(fp, str) and os.path.exists(fp):
+                    url_to_file[url] = fp
+
+            resolved = []
+            for src in final_sources:
+                if isinstance(src, str) and src in url_to_file:
+                    resolved.append(url_to_file[src])
+                else:
+                    resolved.append(src)
+
+            log.debug("[RESOLVE] -> using final_image_sources (logo override)")
+            return resolved
+
         log.debug("[RESOLVE] -> using final_image_sources")
         return final_sources
 

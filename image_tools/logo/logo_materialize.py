@@ -1,4 +1,5 @@
 import os
+from image_tools.thumbnail_engine.layout.utils import paste_on_prebuilt_bg
 from typing import List
 
 from image_tools.config import TEMP_IMG_DIR
@@ -65,17 +66,32 @@ def materialize_logo_job(job: LogoJob) -> List[str]:
             final_sources.append(url)
             continue
 
+        # 로고 제거 결과가 RGBA인 경우 썸네일 유틸로 배경 합성
+        try:
+            if hasattr(img, "mode") and img.mode == "RGBA":
+                img = paste_on_prebuilt_bg(img)
+        except Exception:
+            pass
+
         filename = f"img_{idx}.png"
         out_path = os.path.abspath(os.path.join(item_dir, filename))
 
-        # 이미 materialize 된 경우 재사용
-        if not os.path.exists(out_path):
-            try:
-                img.save(out_path, format="PNG")
-            except Exception as e:
-                # 파일 저장 실패 시에도 시스템은 계속 진행
-                final_sources.append(url)
-                continue
+        # 항상 새로 저장 (기존 파일이 남아 있으면 잘못된 이미지가 재사용될 수 있음)
+        try:
+            if os.path.exists(out_path):
+                print(f"[LOGO][MAT] overwrite existing: {out_path}")
+            img.save(out_path, format="PNG")
+        except Exception:
+            # 파일 저장 실패 시에도 시스템은 계속 진행
+            final_sources.append(url)
+            continue
+
+        # 저장 결과 로그
+        try:
+            size = os.path.getsize(out_path)
+            print(f"[LOGO][MAT] saved idx={idx} need_remove={need_remove} size={size} path={out_path}")
+        except Exception:
+            print(f"[LOGO][MAT] saved idx={idx} need_remove={need_remove} path={out_path}")
 
         # 결과 기록
         result["file_path"] = out_path

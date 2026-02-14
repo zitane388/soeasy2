@@ -1,0 +1,72 @@
+{
+  "brand": "moma",
+  "country": "kr",
+  "sample_urls": [
+    "https://store.moma.org/en-kr/products/henri-matisse-four-seasons-silk-scarf-spring?variant=47297857487078",
+    "https://store.moma.org/en-kr/products/be-rbrick-audio-color-block-400-bluetooth-speaker",
+    "https://store.moma.org/en-kr/products/moma-nike-elite-crew-basketball-socks-white"
+  ],
+  "mode": "html_blocks",
+  "html_blocks": [
+    {
+      "block_name": "name_area",
+      "purpose": "상품명 영역",
+      "html": "<h1 class=\"pv-title\">MoMA Nike Everyday Socks</h1>"
+    },
+    {
+      "block_name": "brand_area",
+      "purpose": "브랜드 소스(.js 상품 JSON의 vendor 필드)",
+      "html": "{\"title\":\"MoMA Nike Everyday Socks - Black\",\"vendor\":\"NIKE Retail Services Inc\"}"
+    },
+    {
+      "block_name": "model_area",
+      "purpose": "모델번호 영역(없으면 빈 문자열 허용)",
+      "html": ""
+    },
+    {
+      "block_name": "price_area",
+      "purpose": "가격 영역",
+      "html": "<span class=\"pv-price__original-price js-price-original-text\">₩8,000</span>"
+    },
+    {
+      "block_name": "images_area",
+      "purpose": "대표/상세 이미지 영역",
+      "html": "<div class=\"pv-gallery__carousel-nav\"><img data-srcset=\"//store.moma.org/cdn/shop/files/example_180x.jpg?v=1741625173 180w\" alt=\"example\"></div>"
+    },
+    {
+      "block_name": "options_area",
+      "purpose": "옵션(색상/사이즈) 영역",
+      "html": "<div class=\"config\"><div class=\"config__group config__group--color\" data-option-name=\"Color\"><input type=\"radio\" name=\"options[Color]\" value=\"Lucky Green\"></div><div class=\"config__group config__group--size\" data-option-name=\"Size\"><input type=\"radio\" name=\"options[Size]\" value=\"X-Large\"></div></div>"
+    },
+    {
+      "block_name": "description_area",
+      "purpose": "상세설명 영역",
+      "html": "<div class=\"pv-details__content-section-inner--truncated js-product-details-content-section-truncated\"><p>MoMA Exclusive: While you certainly can play a pick-up game in these MoMA Nike Everyday Socks, you can wear them off the court for everyday activities too.</p></div>"
+    }
+  ],
+  "initial_data_scripts": [
+    {
+      "script_name": "__NEXT_DATA__",
+      "purpose": "페이지 초기 상태 데이터(JSON)",
+      "html": ""
+    }
+  ],
+  "dom_snapshots": [
+    {
+      "snapshot_name": "price_before",
+      "action": "초기 진입 시 가격 노드",
+      "html": ""
+    },
+    {
+      "snapshot_name": "option_selected",
+      "action": "옵션 선택 후 active 상태",
+      "html": ""
+    }
+  ],
+  "har_file": "parsers\\product_pages\\doc\\har\\store.moma.org.har",
+  "notes": [
+    "moma_kr 온보딩 스펙으로 정돈: 유효 JSON, 중복 블록 제거, supersports 예시 제거",
+    "html_blocks는 전체 HTML 덤프 대신 파서 셀렉터 검증에 필요한 최소 스니펫만 유지",
+    "실제 파서 구현 단계에서는 HAR + 실페이지 HTML에서 selector를 다시 확정할 것"
+  ]
+}
