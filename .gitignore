@@ -3,6 +3,14 @@ venv/
 __pycache__/
 *.pyc
 
+# chrome extension workspace
+extensions/**/node_modules/
+extensions/**/dist/
+extensions/**/.env
+extensions/**/.env.*
+extensions/**/key.pem
+extensions/**/webstore-*.json
+
 # model weights (절대 커밋 금지)
 *.pt
 *.pth
@@ -23,3 +31,15 @@ openai_api_key.txt
 # python cache (절대 커밋 금지)
 __pycache__/
 *.pyc
+
+# build artifacts
+build/
+dist/
+*.spec
+*.exe
+*.zip
+
+# local debug/output
+debug_stages/
+data/brand_canonical_cache.json
+*.har
