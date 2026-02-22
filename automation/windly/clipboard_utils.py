@@ -2,11 +2,18 @@ import os
 import struct
 import io
 import tempfile
-import win32clipboard
-import win32con
+import platform
+import subprocess
 from PIL import Image
 from automation.windly_config_loader import get_windly_temp_dir
 import hashlib
+
+IS_WINDOWS = platform.system() == "Windows"
+IS_MAC = platform.system() == "Darwin"
+
+if IS_WINDOWS:
+    import win32clipboard
+    import win32con
 
 
 def create_explorer_hdrop(file_list):
@@ -23,11 +30,17 @@ def create_explorer_hdrop(file_list):
 
 
 def copy_files_to_clipboard(file_list):
-    data = create_explorer_hdrop(file_list)
-    win32clipboard.OpenClipboard()
-    win32clipboard.EmptyClipboard()
-    win32clipboard.SetClipboardData(win32con.CF_HDROP, data)
-    win32clipboard.CloseClipboard()
+    if IS_WINDOWS:
+        data = create_explorer_hdrop(file_list)
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(win32con.CF_HDROP, data)
+        win32clipboard.CloseClipboard()
+    elif IS_MAC:
+        # macOS: osascript로 파일 복사
+        files_str = ", ".join([f'POSIX file "{f}"' for f in file_list])
+        script = f'set the clipboard to {{{files_str}}}'
+        subprocess.run(["osascript", "-e", script], check=False)
 
 
 def copy_image_file(path):
@@ -50,59 +63,77 @@ def copy_image_file(path):
         img = img.convert("RGB")
         print(f"[CLIPBOARD][IMG] converted to RGB")
 
-    output = io.BytesIO()
-    img.save(output, "BMP")
-    bmp_bytes = output.getvalue()
-    output.close()
+    if IS_WINDOWS:
+        output = io.BytesIO()
+        img.save(output, "BMP")
+        bmp_bytes = output.getvalue()
+        output.close()
 
-    print(f"[CLIPBOARD][IMG] BMP total bytes = {len(bmp_bytes)}")
+        print(f"[CLIPBOARD][IMG] BMP total bytes = {len(bmp_bytes)}")
 
-    data = bmp_bytes[14:]
-    print(f"[CLIPBOARD][IMG] DIB bytes = {len(data)}")
+        data = bmp_bytes[14:]
+        print(f"[CLIPBOARD][IMG] DIB bytes = {len(data)}")
 
-    if len(data) < 100:
-        print(f"[CLIPBOARD][IMG][WARN] DIB size too small, suspicious")
+        if len(data) < 100:
+            print(f"[CLIPBOARD][IMG][WARN] DIB size too small, suspicious")
 
-    try:
-        win32clipboard.OpenClipboard()
-        win32clipboard.EmptyClipboard()
-        win32clipboard.SetClipboardData(win32con.CF_DIB, data)
-        win32clipboard.CloseClipboard()
-        print(f"[CLIPBOARD][IMG] CF_DIB set SUCCESS")
-        # Debug: verify clipboard content (optional)
-        if os.environ.get("WINDLY_DEBUG_CLIPBOARD") == "1":
-            try:
-                win32clipboard.OpenClipboard()
-                dib = win32clipboard.GetClipboardData(win32con.CF_DIB)
-                win32clipboard.CloseClipboard()
-
-                # Rebuild BMP header from DIB
-                header_size = struct.unpack("<I", dib[:4])[0]
-                bmp_size = 14 + len(dib)
-                offset = 14 + header_size
-                bmp_header = struct.pack("<2sIHHI", b"BM", bmp_size, 0, 0, offset)
-                bmp_bytes = bmp_header + dib
-
-                img = Image.open(io.BytesIO(bmp_bytes))
-                img.load()
-
-                temp_dir = get_windly_temp_dir() if os.path.isdir(get_windly_temp_dir()) else tempfile.gettempdir()
-                os.makedirs(temp_dir, exist_ok=True)
-                out_path = os.path.join(temp_dir, "clipboard_last.png")
-                img.save(out_path)
-                print(f"[CLIPBOARD][IMG][DEBUG] saved clipboard image -> {out_path}")
-            except Exception as e:
+        try:
+            win32clipboard.OpenClipboard()
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(win32con.CF_DIB, data)
+            win32clipboard.CloseClipboard()
+            print(f"[CLIPBOARD][IMG] CF_DIB set SUCCESS")
+            # Debug: verify clipboard content (optional)
+            if os.environ.get("WINDLY_DEBUG_CLIPBOARD") == "1":
                 try:
+                    win32clipboard.OpenClipboard()
+                    dib = win32clipboard.GetClipboardData(win32con.CF_DIB)
                     win32clipboard.CloseClipboard()
-                except Exception:
-                    pass
-                print(f"[CLIPBOARD][IMG][DEBUG] clipboard verify failed: {e}")
-    except Exception as e:
-        print(f"[CLIPBOARD][IMG][ERROR] clipboard failed:", e)
+
+                    # Rebuild BMP header from DIB
+                    header_size = struct.unpack("<I", dib[:4])[0]
+                    bmp_size = 14 + len(dib)
+                    offset = 14 + header_size
+                    bmp_header = struct.pack("<2sIHHI", b"BM", bmp_size, 0, 0, offset)
+                    bmp_bytes = bmp_header + dib
+
+                    img = Image.open(io.BytesIO(bmp_bytes))
+                    img.load()
+
+                    temp_dir = get_windly_temp_dir() if os.path.isdir(get_windly_temp_dir()) else tempfile.gettempdir()
+                    os.makedirs(temp_dir, exist_ok=True)
+                    out_path = os.path.join(temp_dir, "clipboard_last.png")
+                    img.save(out_path)
+                    print(f"[CLIPBOARD][IMG][DEBUG] saved clipboard image -> {out_path}")
+                except Exception as e:
+                    try:
+                        win32clipboard.CloseClipboard()
+                    except Exception:
+                        pass
+                    print(f"[CLIPBOARD][IMG][DEBUG] clipboard verify failed: {e}")
+        except Exception as e:
+            print(f"[CLIPBOARD][IMG][ERROR] clipboard failed:", e)
+    
+    elif IS_MAC:
+        # macOS: PNG로 저장 후 osascript로 클립보드에 복사
+        try:
+            temp_png = tempfile.mktemp(suffix=".png")
+            img.save(temp_png, "PNG")
+            subprocess.run([
+                "osascript", "-e",
+                f'set the clipboard to (read (POSIX file "{temp_png}") as «class PNGf»)'
+            ], check=True)
+            os.remove(temp_png)
+            print(f"[CLIPBOARD][IMG] macOS clipboard set SUCCESS")
+        except Exception as e:
+            print(f"[CLIPBOARD][IMG][ERROR] macOS clipboard failed:", e)
 
 
 def copy_text(text):
-    win32clipboard.OpenClipboard()
-    win32clipboard.EmptyClipboard()
-    win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
-    win32clipboard.CloseClipboard()
+    if IS_WINDOWS:
+        win32clipboard.OpenClipboard()
+        win32clipboard.EmptyClipboard()
+        win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
+        win32clipboard.CloseClipboard()
+    elif IS_MAC:
+        subprocess.run(["pbcopy"], input=text.encode("utf-8"), check=False)
