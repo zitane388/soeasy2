@@ -3,14 +3,25 @@ import os
 import subprocess
 import logging
 import webbrowser
+import platform
 
 def open_in_chrome(url: str):
     """설치된 Chrome을 찾아서 해당 URL을 띄운다 (확장프로그램 활성 프로필 유지)."""
 
-    chrome_paths = [
-        r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-        r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
-    ]
+    if platform.system() == "Windows":
+        chrome_paths = [
+            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
+        ]
+    elif platform.system() == "Darwin":  # macOS
+        chrome_paths = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        ]
+    else:  # Linux
+        chrome_paths = [
+            "/usr/bin/google-chrome",
+            "/usr/bin/chromium-browser"
+        ]
 
     chrome_path = next((p for p in chrome_paths if os.path.exists(p)), None)
 

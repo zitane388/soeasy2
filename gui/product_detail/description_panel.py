@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 import os, json, tempfile, webbrowser, threading
 import shutil
+import platform
 
 import tempfile
 import subprocess
@@ -333,12 +334,24 @@ class DescriptionPanel(ttk.LabelFrame):
         # --------------------------------------------------------------
         default_chrome = shutil.which("chrome") or "chrome"
 
-        chrome_paths = [
-            r"C:\Program Files\Google\Chrome\Application\chrome.exe",
-            r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
-            rf"C:\Users\{os.getlogin()}\AppData\Local\Google\Chrome\Application\chrome.exe",
-            default_chrome
-        ]
+        if platform.system() == "Windows":
+            chrome_paths = [
+                r"C:\Program Files\Google\Chrome\Application\chrome.exe",
+                r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe",
+                rf"C:\Users\{os.getlogin()}\AppData\Local\Google\Chrome\Application\chrome.exe",
+                default_chrome
+            ]
+        elif platform.system() == "Darwin":  # macOS
+            chrome_paths = [
+                "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+                default_chrome
+            ]
+        else:  # Linux
+            chrome_paths = [
+                "/usr/bin/google-chrome",
+                "/usr/bin/chromium-browser",
+                default_chrome
+            ]
 
         chrome_path = next((p for p in chrome_paths if os.path.exists(p)), default_chrome)
 
