@@ -13,7 +13,7 @@ from .synonym_loader import load_synonym_index, expand_keywords_with_synonyms, g
 # Logging Config
 # --------------------
 logging.basicConfig(
-    level=logging.INFO,   # DEBUG / INFO
+    level=logging.DEBUG,   # DEBUG / INFO
     format="[%(levelname)s] %(message)s"
 )
 log = logging.getLogger("category_matcher")

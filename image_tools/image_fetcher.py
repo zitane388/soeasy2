@@ -2,8 +2,6 @@ import httpx
 import requests
 import time
 import re
-import os
-from urllib.parse import urlparse
 from config.image_settings import HTTP2_REQUIRED_DOMAINS, COMMON_IMAGE_HEADERS
 
 # MUJI 전용 HTTP/2 클라이언트
@@ -31,13 +29,6 @@ def simplify_muji_url(url):
     return url
 
 def fetch_image_content(url, max_retries=3):
-    if isinstance(url, str) and os.path.exists(url):
-        try:
-            with open(url, "rb") as f:
-                return f.read()
-        except Exception as e:
-            print(f"[IMAGE_FETCHER] local read failed: {e}")
-            return None
     # 1. 주소 단순화 시도
     target_url = simplify_muji_url(url)
     
@@ -46,42 +37,20 @@ def fetch_image_content(url, max_retries=3):
     
     for attempt in range(max_retries):
         try:
-            # --- 도메인별 Referer 보정 ---
-            headers = dict(COMMON_IMAGE_HEADERS)
-            try:
-                host = urlparse(target_url).netloc.lower()
-            except Exception:
-                host = ""
-            if "uniqlo.com" in host:
-                headers["Referer"] = "https://www.uniqlo.com/jp/"
-                headers["Accept"] = "image/jpeg,image/png,image/*;q=0.8,*/*;q=0.5"
-            elif "muji.com" in host or "img.muji.net" in host:
-                headers["Referer"] = "https://www.muji.com/jp/ja/"
-            elif "supersports.com" in host:
-                headers["Referer"] = "https://www.supersports.com/ja-jp/"
-                # Force widely-supported formats for PIL decode stability.
-                headers["Accept"] = "image/jpeg,image/png,image/*;q=0.8,*/*;q=0.5"
-
             if is_http2_target:
                 # [Case A] 단순화된 주소로 HTTP/2 요청
-                resp = _HTTP2_CLIENT.get(target_url, headers=headers)
+                resp = _HTTP2_CLIENT.get(target_url)
                 
                 # 만약 단순화된 주소(_org 등)가 404라면, 원본 주소로 한 번 더 시도
                 if resp.status_code != 200 and target_url != url:
-                    resp = _HTTP2_CLIENT.get(url, headers=headers)
+                    resp = _HTTP2_CLIENT.get(url)
                 
                 resp.raise_for_status()
-                content_type = (resp.headers.get("Content-Type") or "").lower()
-                if "image" not in content_type:
-                    raise ValueError(f"non-image response: {content_type}")
                 return resp.content
             else:
                 # [Case B] 일반 사이트
-                resp = requests.get(target_url, headers=headers, timeout=10)
+                resp = requests.get(target_url, headers=COMMON_IMAGE_HEADERS, timeout=10)
                 resp.raise_for_status()
-                content_type = (resp.headers.get("Content-Type") or "").lower()
-                if "image" not in content_type:
-                    raise ValueError(f"non-image response: {content_type}")
                 return resp.content
                 
         except Exception as e:

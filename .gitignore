@@ -1,45 +1,154 @@
-# virtual env & cache
-venv/
+# ========================================
+# Python
+# ========================================
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.so
+.Python
 
-# chrome extension workspace
-extensions/**/node_modules/
-extensions/**/dist/
-extensions/**/.env
-extensions/**/.env.*
-extensions/**/key.pem
-extensions/**/webstore-*.json
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+Lib/
+Scripts/
+pyvenv.cfg
+pip-selfcheck.json
 
-# model weights (절대 커밋 금지)
-*.pt
-*.pth
-image_tools/models/
+# Distribution / packaging
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+.eggs/
+*.dist-info/
+MANIFEST
 
-# temp
+# PyInstaller
+*.manifest
+*.spec
+
+# ========================================
+# Environment & Config (SENSITIVE!)
+# ========================================
+.env
+.env.local
+.env.*.local
+*.key
+*.pem
+
+# Naver API config (if contains keys)
+naver_uploader/config.json
+
+# ========================================
+# Cache & Temporary Files
+# ========================================
+# HTML cache
+html_cache/
+*.html.cache
+
+# Temporary images
 temp_img/
 windly_temp/
-html_cache/
-debug/
-.local-browsers/
 
-# secrets
-openai_api_key.txt
-*.env
-.env
+# Generated thumbnails
+images/thumb*.jpg
+images/thumb*.png
+images/thumb*.jpeg
 
-# python cache (절대 커밋 금지)
-__pycache__/
-*.pyc
-
-# build artifacts
-build/
-dist/
-*.spec
-*.exe
-*.zip
-
-# local debug/output
+# Debug output
 debug_stages/
-data/brand_canonical_cache.json
-*.har
+
+# ========================================
+# IDE & Editor
+# ========================================
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ========================================
+# OS
+# ========================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# ========================================
+# Browser Automation
+# ========================================
+# Playwright browsers
+.local-browsers/
+playwright/.local-browsers/
+
+# Selenium
+.wdm/
+
+# ========================================
+# AI/ML Models (Large Files)
+# ========================================
+# PyTorch models
+*.pt
+*.pth
+
+# ONNX models (프로젝트 내 커스텀 모델만)
+# Note: rembg, mediapipe 등의 자동 다운로드 모델은 제외
+image_tools/models/*.pt
+image_tools/models/*.onnx
+
+# ========================================
+# Logs
+# ========================================
+*.log
+logs/
+*.log.*
+
+# ========================================
+# Data (optional - 프로젝트에 따라 조정)
+# ========================================
+# 크롤링된 원본 데이터 (용량이 크다면)
+# data/*.json
+# data/*.csv
+
+# ========================================
+# Testing
+# ========================================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+test*.py
+test_*/
+
+# ========================================
+# Documentation
+# ========================================
+site/
+docs/_build/
+/venv/
+
+# ========================================
+# Web Frontend (Node.js / React)
+# ========================================
+node_modules/
+web/frontend/node_modules/
+web/frontend/dist/
+web/frontend/build/
+*.local
+.npm
+.yarn
+package-lock.json
+yarn.lock

@@ -209,7 +209,7 @@ class NaverBestOrchestrator:
                     option_btn = self.driver.find_element(By.CSS_SELECTOR, "div.KobocOawE2 a._yGBCMWCWu")
                     if option_btn:
                         self.driver.execute_script("arguments[0].click();", option_btn)
-                        time.sleep(1.2) # 리스트 렌더링 시간 확보
+                        time.sleep(10.2) # 리스트 렌더링 시간 확보
                 except Exception as e:
                     # 옵션이 없는 상품(단일상품)일 경우 에러가 나므로 통과
                     print(f"[DEBUG] 옵션 버튼 없음 또는 클릭 실패(단일상품 가능성): {item.name[:10]}")

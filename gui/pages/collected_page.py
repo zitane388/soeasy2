@@ -21,9 +21,6 @@ class CollectedPage:
 
         self.list_container = None
         self.select_all_var = tk.BooleanVar(value=True)
-        
-    def _on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
     # ==========================================================
     # UI 구성
@@ -48,7 +45,7 @@ class CollectedPage:
             text="전체 선택",
             variable=self.select_all_var,
             command=toggle_select_all
-        ).pack(side="left", padx=5)
+        ).pack(side="left", padx=10)
 
         ttk.Button(
             header,
@@ -57,16 +54,7 @@ class CollectedPage:
                 target=self.generate_all_thumbnails,
                 daemon=True
             ).start()
-        ).pack(side="left", padx=5)
-        
-        ttk.Button(
-            header,
-            text="로고/배경 지우기",
-            command=lambda: threading.Thread(
-                target=self.remove_logo_background_for_checked,
-                daemon=True
-            ).start()
-        ).pack(side="left", padx=5)
+        ).pack(side="left", padx=10)
 
         ttk.Button(
             header,
@@ -75,7 +63,7 @@ class CollectedPage:
                 target=self.upload_to_naver,
                 daemon=True
             ).start()
-        ).pack(side="left", padx=5)
+        ).pack(side="left", padx=10)
 
         ttk.Button(
             header,
@@ -87,42 +75,10 @@ class CollectedPage:
         ).pack(side="left", padx=10)
 
         # ===============================
-        # 🔥 스크롤 가능한 리스트 영역
+        # 리스트 영역
         # ===============================
-        list_container = ttk.Frame(self.frame)
-        list_container.pack(fill="both", expand=True, padx=10, pady=10)
-
-        self.canvas = tk.Canvas(list_container, highlightthickness=0)
-        scrollbar = ttk.Scrollbar(list_container, orient="vertical", command=self.canvas.yview)
-        self.canvas.configure(yscrollcommand=scrollbar.set)
-
-        scrollbar.pack(side="right", fill="y")
-        self.canvas.pack(side="left", fill="both", expand=True)
-
-        # 실제 아이템 프레임
-        self.list_container = ttk.Frame(self.canvas)
-
-        self.canvas_window = self.canvas.create_window(
-            (0, 0),
-            window=self.list_container,
-            anchor="nw"
-        )
-
-        # 내부 크기 변경 → 스크롤 영역 갱신
-        self.list_container.bind(
-            "<Configure>",
-            lambda e: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        )
-
-        # 창 크기 변경 시 가로폭 맞춤
-        self.canvas.bind(
-            "<Configure>",
-            lambda e: self.canvas.itemconfig(self.canvas_window, width=e.width)
-        )
-
-        # 마우스 휠 연결
-        self.canvas.bind_all("<MouseWheel>", self._on_mousewheel)
-
+        self.list_container = ttk.Frame(self.frame)
+        self.list_container.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.refresh()
 
@@ -356,108 +312,6 @@ class CollectedPage:
             "썸네일 생성 완료",
             f"총 {total}개\n성공: {done}\n실패: {failed}"
         )
-        
-    def remove_logo_background_for_checked(self):
-        import traceback
-        from tkinter import messagebox
-
-        from image_tools.logo.logo_job import LogoJob
-        from image_tools.logo.logo_runner import run_logo_job
-        from image_tools.logo.logo_materialize import materialize_logo_job
-
-        items = self.get_checked_items()
-        if not items:
-            return
-
-        total_items = len(items)
-        total_images = 0
-        processed = 0
-        skipped = 0
-        failed = 0
-
-        for item in items:
-            try:
-                # ✅ 기준은 항상 final_image_sources
-                base_images = getattr(item, "final_image_sources", None)
-                if not isinstance(base_images, list) or not base_images:
-                    continue
-
-                # ✅ 체크 상태 맵 (없으면 전체 True)
-                image_checked_map = getattr(item, "image_checked_map", None)
-                if not isinstance(image_checked_map, dict):
-                    image_checked_map = {src: True for src in base_images}
-                    item.image_checked_map = image_checked_map
-
-                # ✅ 체크된 이미지 추림
-                checked_images = [
-                    src for src in base_images
-                    if image_checked_map.get(src, False)
-                ]
-
-                # ✅ 아무 것도 체크 안 돼 있으면 → 전체 이미지 처리
-                if not checked_images:
-                    checked_images = list(base_images)
-
-                total_images += len(checked_images)
-
-                # 🔹 Job 생성 (체크된 것만)
-                job = LogoJob(item=item, image_urls=checked_images)
-
-                ok, results = run_logo_job(job)
-                if not ok or not isinstance(results, list):
-                    failed += len(checked_images)
-                    continue
-
-                # 🔹 결과 집계
-                for r in results:
-                    if r.get("need_remove"):
-                        processed += 1
-                    else:
-                        skipped += 1
-
-                # job 상태 확정
-                job.results = results
-                job.status = "done"
-
-                # 🔹 materialize (체크된 subset만)
-                materialize_logo_job(job)
-
-                # 🔹 치환 맵 구성 (src 기준)
-                replacement_map = {}
-                for r in results:
-                    src = r.get("url")
-                    if not src:
-                        continue
-                    fp = r.get("file_path")
-                    replacement_map[src] = fp if fp else src
-
-                # 🔹 전체 리스트에 치환 적용 (순서 유지)
-                final_sources = []
-                for src in base_images:
-                    final_sources.append(replacement_map.get(src, src))
-
-                # ✅ item에 반영
-                item.final_image_sources = final_sources
-                item.thumbnail_url = final_sources[0] if final_sources else None
-
-            except Exception:
-                traceback.print_exc()
-                failed += 1
-
-            self.refresh()
-
-        messagebox.showinfo(
-            "로고/배경 처리 완료",
-            f"상품 수: {total_items}\n"
-            f"대상 이미지: {total_images}\n"
-            f"제거됨: {processed}\n"
-            f"유지됨: {skipped}\n"
-            f"실패: {failed}"
-        )
-
-
-
-
 
     # ==========================================================
     # 네이버 업로드

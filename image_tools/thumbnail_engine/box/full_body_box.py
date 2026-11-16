@@ -8,7 +8,6 @@ def build_full_body_box(
     pose_box: Box,
     face_box: Box | None,
     landmarks: dict | None = None,
-    rule_key: str | None = None
 ) -> Box:
     """
     pose_box: MediaPipe pose 전체 박스
@@ -17,7 +16,6 @@ def build_full_body_box(
     """
 
     box = pose_box
-    key = rule_key or "full_body"
 
     # --------------------------------------------------
     # 1) 얼굴 박스 보정 + pose와 merge
@@ -70,7 +68,7 @@ def build_full_body_box(
     # --------------------------------------------------
     # 3) 패딩
     # --------------------------------------------------
-    padding = BOX_RULES[key]["padding"]
+    padding = BOX_RULES["full_body"]["padding"]
     box = box.apply_padding(padding)
     
     if landmarks and "image_w" in landmarks:

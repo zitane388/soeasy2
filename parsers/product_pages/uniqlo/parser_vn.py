@@ -37,8 +37,6 @@ class UniqloVietnamParser:
             product_code = None
 
         soup = BeautifulSoup(first_html, "html.parser")
-        
-        model_number_global = self._extract_model_number_global(soup)
 
         # ---------------------------------------------------
         # 1) 색상 / 상세 / 상품명 / 영상
@@ -210,7 +208,7 @@ class UniqloVietnamParser:
                 ]
             })
 
-        detail_text = results["detail_description"]
+        detail_data = results["detail_description"]
 
         # ---------------------------------------------------
         # 7) 최종 반환
@@ -221,30 +219,14 @@ class UniqloVietnamParser:
             "prices": merged_prices,
             "sizes": [merged_sizes[name] for name in merged_sizes_order],
             "images": sub_images + feature_images,
-            "detail_description": detail_text,
-            "model_number": model_number_global,
+            "detail_description": detail_data.get("text", ""),
+            "model_number": detail_data.get("model_number"),
             "options": option_groups,
             "video": video_url,
             "size_headers_original": headers,
             "size_rows_original": rows,
             "size_html_raw": size_html_raw
         }
-        
-    
-    def _extract_model_number_global(self, soup: BeautifulSoup):
-        """
-        페이지 전체 HTML 기준 상품번호 추출
-        상세설명에 없어도 잡히도록 전역 탐색
-        """
-        import re
-
-        text = soup.get_text(" ", strip=True)
-
-        m = re.search(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", text)
-        if m:
-            return m.group(1)
-
-        return None
 
 
     def _fetch_size_chart_by_sizes(self, product_code, sizes, scraper):
@@ -503,31 +485,25 @@ class UniqloVietnamParser:
 
 
         if not parts:
-            return ""
+            return {"text": "", "model_number": None}
 
-        # 최종 텍스트 병합
-        text = "\n\n".join(parts).strip()
-        
-        # 商品番号 / 品番 라벨 + 값 전체 제거
-        text = re.sub(r"商品番号\s*[:：]?\s*[0-9A-Za-z\-]*", "", text)
-        text = re.sub(r"品番\s*[:：]?\s*[0-9A-Za-z\-]*", "", text)
+        final_text = "\n\n".join(parts).strip()
 
-        # 단독 숫자 상품코드 줄 제거
-        lines = text.split("\n")
-        lines = [l for l in lines if not re.fullmatch(r"\s*\d{6,8}\s*", l)]
-        text = "\n".join(lines)
+        model_number = None
+        m = re.search(r"(商品番号|Product\s*Code|Product\s*ID)[:：]?\s*([0-9A-Za-z,\-]+)", final_text)
 
-        # 상품번호 제거 후 생긴 ' : ' 단독 구문만 정리
-        text = re.sub(r"\n\s*[:：]\s*\n", "\n", text)
+        if m:
+            model_number = m.group(2)
+            final_text = re.sub(m.group(0), "", final_text).strip()
 
-        # 공백 정리
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        text = re.sub(r"[ ]{2,}", " ", text).strip()
-        
-        return text
-    
-    
-    
+
+        print("[VN_PARSER][DETAIL] parts count =", len(parts))
+        print("[VN_PARSER][DETAIL] exit _parse_detail_description")
+
+        return {
+            "text": final_text,
+            "model_number": model_number
+        }
 
     def extract_raw_size_chart(self, html: str):
         """

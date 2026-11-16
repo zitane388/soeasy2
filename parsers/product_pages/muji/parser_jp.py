@@ -46,9 +46,6 @@ class MujiJapanParser:
         
         # 1. RAW 데이터(첫 번째 탭: 상세설명) 파싱
         soup = BeautifulSoup(first_html, "html.parser")
-        
-        model_number_global = self._extract_model_number_global(soup)
-        
         raw_name = self._parse_name(soup)
         detail_description = self._parse_detail_description(soup)
         
@@ -212,31 +209,13 @@ class MujiJapanParser:
             "prices": merged_prices,
             "sizes": [merged_sizes[name] for name in merged_sizes_order],
             "images": final_images,
-            "detail_description": detail_description,
-            "model_number": model_number_global,
+            "detail_description": detail_description.get("text", ""),
+            "model_number": detail_description.get("model_number"),
             "size_html_raw": size_html_raw,
             "options": option_groups,
             "size_headers_original": headers,
             "size_rows_original": rows
         }
-        
-        
-    def _extract_model_number_global(self, soup: BeautifulSoup):
-        """
-        페이지 전체 HTML 기준 상품번호 추출
-        상세설명에 없어도 잡히도록 전역 탐색
-        """
-        import re
-
-        text = soup.get_text(" ", strip=True)
-
-        m = re.search(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", text)
-        if m:
-            return m.group(1)
-
-        return None
-
-        
 
     # 6-1) 이미지 순서 조정 (순번 우선 정렬)
     def sort_muji_images(self, image_urls):
@@ -336,31 +315,25 @@ class MujiJapanParser:
                 })
         return sizes
     
-    # ---------------------------------------------------
+        # ---------------------------------------------------
     # 상세설명
     # ---------------------------------------------------
     def _parse_detail_description(self, soup):
 
         nodes = soup.select("p.ItemDescription_description__e_erj")
         text = " ".join(n.get_text(" ", strip=True) for n in nodes)
-        
-        # 商品番号 / 品番 라벨 + 값 전체 제거
-        text = re.sub(r"商品番号\s*[:：]?\s*[0-9A-Za-z\-]*", "", text)
-        text = re.sub(r"品番\s*[:：]?\s*[0-9A-Za-z\-]*", "", text)
 
-        # 단독 숫자 상품코드 줄 제거
-        lines = text.split("\n")
-        lines = [l for l in lines if not re.fullmatch(r"\s*\d{6,8}\s*", l)]
-        text = "\n".join(lines)
+        model_number = None
+        import re
+        m = re.search(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", text)
+        if m:
+            model_number = m.group(1)
+            text = re.sub(r"商品番号[:：]?\s*[0-9A-Za-z\-]+", "", text).strip()
 
-        # 상품번호 제거 후 생긴 ' : ' 단독 구문만 정리
-        text = re.sub(r"\n\s*[:：]\s*\n", "\n", text)
-
-        # 공백 정리
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        text = re.sub(r"[ ]{2,}", " ", text).strip()
-
-        return text
+        return {
+            "text": text,
+            "model_number": model_number
+        }
 
     # ---------------------------------------------------
     # 사이즈표 HTML

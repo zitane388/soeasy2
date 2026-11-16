@@ -34,15 +34,9 @@ POLICIES = {
         "renderer_scale": True,
     },
 
+
+
     "lower_body": {
-        "resolve_box": lambda boxes: boxes["lower_body"],
-        "resolve_pivot": lambda box, boxes: box.top_center,
-        "canvas_anchor": "top",
-        "engine_scale": True,
-        "renderer_scale": True,
-    },
-    
-    "lower_body_loose": {
         "resolve_box": lambda boxes: boxes["lower_body"],
         "resolve_pivot": lambda box, boxes: box.top_center,
         "canvas_anchor": "top",

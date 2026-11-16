@@ -40,6 +40,11 @@ torch.load = patched_torch_load
 # ------------------------------------------------------
 # 3) 세그멘테이션 세션 로딩 (실사용 모델만)
 # ------------------------------------------------------
-SESSION = new_session("birefnet-portrait")
-
-print("[MODEL] Ready (BiRefNet only)")
+# 인텔 GPU 가속 시도 (OpenVINO)
+try:
+    SESSION = new_session("birefnet-portrait", providers=["OpenVINOExecutionProvider", "CPUExecutionProvider"])
+    print("[MODEL] Ready (BiRefNet with OpenVINO GPU acceleration)")
+except Exception as e:
+    print(f"[MODEL] OpenVINO failed, falling back to CPU: {e}")
+    SESSION = new_session("birefnet-portrait")
+    print("[MODEL] Ready (BiRefNet CPU only)")

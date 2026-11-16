@@ -7,6 +7,10 @@ import os
 import base64
 import importlib
 from openai import OpenAI
+from dotenv import load_dotenv
+
+# .env 파일 로드
+load_dotenv()
 
 # -----------------------------------------------------
 # 1) API 설정
@@ -16,8 +20,12 @@ LLM_MODEL = "gpt-4o-mini"
 TIMEOUT = 45
 RETRY = 2
 
-if not OPENAI_API_KEY:
-    raise RuntimeError("환경변수 OPENAI_API_KEY가 설정되지 않았습니다.")
+if not OPENAI_API_KEY or OPENAI_API_KEY == "your-openai-api-key-here":
+    raise RuntimeError(
+        "환경변수 OPENAI_API_KEY가 설정되지 않았습니다.\n"
+        ".env 파일에 유효한 OpenAI API 키를 설정해주세요.\n"
+        "https://platform.openai.com/api-keys"
+    )
 
 client = OpenAI(api_key=OPENAI_API_KEY, timeout=TIMEOUT)
 
@@ -34,11 +42,8 @@ def reload_formatter():
     PROMPTS = {
         "DETAIL": formatter_module.DETAIL_DESCRIPTION_PROMPT,
         "OPTION": formatter_module.PRODUCT_OPTION_PROMPT,
-        "OPTION_GROUP_NAME": formatter_module.PRODUCT_OPTION_GROUP_NAME_PROMPT,
         "NAME": formatter_module.PRODUCT_NAME_PROMPT,
         "NAME_VISION": formatter_module.PRODUCT_NAME_PROMPT_VISION,
-        "SEARCH_COMPACT": formatter_module.SEARCH_COMPACT_PROMPT,
-        "BRAND_CANONICAL": formatter_module.BRAND_CANONICAL_PROMPT,
         "CATEGORY_FALLBACK": formatter_module.CATEGORY_PICK_PROMPT,
         "CATEGORY_DETAIL_FILTER": formatter_module.CATEGORY_DETAIL_FILTER_PROMPT,
         "ATTRIBUTE_PICK": formatter_module.ATTRIBUTE_PICK_PROMPT,

@@ -20,6 +20,15 @@ log = get_logger()
 def _ensure_dir():
     os.makedirs("debug_steps", exist_ok=True)
 
+def _safe(s: str) -> str:
+    return "".join(c if c.isalnum() or c in ["_", "-", "."] else "_" for c in str(s))
+
+def _draw_box(img: Image.Image, box: Box, color=(255, 0, 0), width=4):
+    img = img.copy()
+    d = ImageDraw.Draw(img)
+    d.rectangle([box.left, box.top, box.right, box.bottom], outline=color, width=width)
+    return img
+
 def _save(img: Image.Image, name: str):
     _ensure_dir()
     path = os.path.join("debug_steps", f"{name}.png")

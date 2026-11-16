@@ -4,54 +4,6 @@ from PIL import Image, ImageDraw
 import requests, io
 from image_tools.image_fetcher import fetch_image_content  # ✅ 개선된 로더 임포트
 
-def _solve_chip_size(count, border, pad, scale_factor, max_length):
-    numerator = max_length - pad * (count - 1)
-    denom = count * scale_factor
-    size = (numerator / denom) - (2 * border)
-
-    MAX_CHIP = 100  # 🔥 최대 사이즈 제한만 추가
-
-    return min(int(size), MAX_CHIP)
-
-
-def _build_strip_from_chips(chips, pad):
-    chip_w, chip_h = chips[0].size
-    total_w = len(chips) * chip_w + (len(chips) - 1) * pad
-    strip = Image.new("RGBA", (total_w, chip_h), (0, 0, 0, 0))
-
-    x = 0
-    for chip in chips:
-        strip.paste(chip, (x, 0), chip)
-        x += chip_w + pad
-        
-    print("\n[STRIP_BUILD_H]")
-    print(f" chip_w={chip_w}")
-    print(f" pad={pad}")
-    print(f" chip_count={len(chips)}")
-    print(f" total_w={total_w}")
-
-    return strip
-
-
-def _build_vertical_strip_from_chips(chips, pad):
-    chip_w, chip_h = chips[0].size
-    total_h = len(chips) * chip_h + (len(chips) - 1) * pad
-    strip = Image.new("RGBA", (chip_w, total_h), (0, 0, 0, 0))
-
-    y = 0
-    for chip in chips:
-        strip.paste(chip, (0, y), chip)
-        y += chip_h + pad
-        
-    print("\n[STRIP_BUILD_V]")
-    print(f" chip_h={chip_h}")
-    print(f" pad={pad}")
-    print(f" chip_count={len(chips)}")
-    print(f" total_h={total_h}")
-    return strip
-
-
-
 def create_circle_chip(url, size=80, border=6, scale_factor=1.2):
     """
     개선된 fetch_image_content를 사용하여 컬러칩 생성
@@ -117,71 +69,117 @@ def create_circle_chip(url, size=80, border=6, scale_factor=1.2):
 # ---------------------------------------------------------
 # 컬러칩 strip 생성
 # ---------------------------------------------------------
-def make_color_strip(item, chip_size=80, border=6, pad=15, scale_factor=1.5, max_width=None):
+def make_color_strip(item, chip_size=80, border=6, pad=15, scale_factor=1.5):
+    """
+    가로형 컬러 스트립 생성
+    item.parsed_raw['options'] 내 '색상' 그룹에서 칩 이미지를 추출하여 가로로 배치합니다.
+    """
+    print("[COLOR_STRIP] make_color_strip called")
+    
+    # 1. options 리스트에서 group_name이 "색상"인 그룹 찾기
     options = item.parsed_raw.get("options", [])
     color_group = next((g for g in options if g.get("group_name") == "색상"), None)
+    
     if not color_group or not color_group.get("values"):
+        print("[COLOR_STRIP] ❌ Skipped: No color option group found in item")
         return None
 
-    # ✅ 최대 8개 제한
-    color_values = color_group["values"][:7]
-    count = len(color_values)
-
-    print("\n[COLOR_STRIP_H_START]")
-    print(f" color_count(original)={len(color_group['values'])}")
-    print(f" color_count(used)={count}")
-
-    if max_width:
-        chip_size = _solve_chip_size(count, border, pad, scale_factor, max_width)
+    color_values = color_group["values"]
+    print(f"   colors count = {len(color_values)}")
 
     chips = []
     for c in color_values:
-        url = c.get("chip_image") or c.get("chip_url")
-        chip = create_circle_chip(url, size=chip_size, border=border, scale_factor=scale_factor)
-        if chip:
-            chips.append(chip)
+        # 유니클로(chip_image)와 무인양품(chip_url) 키 모두 대응
+        chip_url = c.get("chip_image") or c.get("chip_url")
+        print(f"   processing chip_url = {chip_url}")
+        
+        if chip_url:
+            circ = create_circle_chip(
+                chip_url,
+                size=chip_size,
+                border=border,
+                scale_factor=scale_factor
+            )
+            if circ:
+                chips.append(circ)
 
     if not chips:
+        print("[COLOR_STRIP] ❌ no chips generated")
         return None
+    
+    print(f"[COLOR_STRIP] ✅ chips generated: {len(chips)}")
 
-    strip = _build_strip_from_chips(chips, pad)
+    # 2. 캔버스 생성 및 가로 배치
+    chip_w, chip_h = chips[0].size
+
+    # 총 너비 = 칩 너비 * 개수 + 패딩 * (개수 - 1)
+    total_w = len(chips) * chip_w + (len(chips) - 1) * pad
+    strip_h = chip_h
+
+    strip = Image.new("RGBA", (total_w, strip_h), (0, 0, 0, 0))
+
+    x = 0
+    for chip in chips:
+        # 투명도 유지를 위해 3번째 인자에 chip(mask)을 넣어줍니다.
+        strip.paste(chip, (x, 0), chip)
+        x += chip_w + pad
+
     return strip
 
 
-
-
-def make_color_strip_vertical(item, chip_size=80, border=6, pad=15, scale_factor=1.5, max_height=None):
+def make_color_strip_vertical(item, chip_size=80, border=6, pad=15, scale_factor=1.5):
+    """
+    세로형 컬러 스트립 생성
+    item.parsed_raw['options'] 내 '색상' 그룹에서 칩 이미지를 추출합니다.
+    """
+    # 1. options 리스트에서 group_name이 "색상"인 그룹 찾기
     options = item.parsed_raw.get("options", [])
     color_group = next((g for g in options if g.get("group_name") == "색상"), None)
+    
+    # 색상 그룹이 없거나 values가 비어있으면 종료
     if not color_group or not color_group.get("values"):
+        print("[COLOR_STRIP] Skipped: No color option group found in item")
         return None
 
-    # ✅ 최대 8개 제한
-    color_values = color_group["values"][:7]
-    count = len(color_values)
-
-    print("\n[COLOR_STRIP_V_START]")
-    print(f" color_count(original)={len(color_group['values'])}")
-    print(f" color_count(used)={count}")
-
-    if max_height:
-        chip_size = _solve_chip_size(count, border, pad, scale_factor, max_height)
-
+    # 2. 색상 값 리스트 추출
+    color_values = color_group["values"]
+    
     chips = []
     for c in color_values:
-        url = c.get("chip_image") or c.get("chip_url")
-        chip = create_circle_chip(url, size=chip_size, border=border, scale_factor=scale_factor)
-        if chip:
-            chips.append(chip)
+        # 유니클로(chip_image)와 무인양품(chip_url) 둘 다 대응
+        chip_url = c.get("chip_image") or c.get("chip_url")
+        
+        if chip_url:
+            circ = create_circle_chip(
+                chip_url,
+                size=chip_size,
+                border=border,
+                scale_factor=scale_factor
+            )
+            if circ:
+                chips.append(circ)
 
+    # 생성된 칩이 하나도 없으면 종료
     if not chips:
         return None
 
-    strip = _build_vertical_strip_from_chips(chips, pad)
+    # 3. 캔버스 생성 및 배치
+    chip_w, chip_h = chips[0].size
+
+    # 총 높이 = 칩 높이 * 개수 + 패딩 * (개수 - 1)
+    total_h = len(chips) * chip_h + (len(chips) - 1) * pad
+    strip_w = chip_w
+
+    # 투명 배경의 새 이미지 생성
+    strip = Image.new("RGBA", (strip_w, total_h), (0, 0, 0, 0))
+
+    y = 0
+    for chip in chips:
+        # mask 인자에 chip을 넣어 투명도 유지하며 붙이기
+        strip.paste(chip, (0, y), chip)
+        y += chip_h + pad
+
     return strip
-
-
-
 
 
 
@@ -200,7 +198,7 @@ def apply_color_strip_to_thumbnail(thumbnail_img, color_strip, position="h-left-
         - v-left-bottom
         - v-right-bottom
     """
-    
+
     if thumbnail_img.mode != "RGBA":
         thumbnail_img = thumbnail_img.convert("RGBA")
 
@@ -209,12 +207,6 @@ def apply_color_strip_to_thumbnail(thumbnail_img, color_strip, position="h-left-
     tw, th = out.size
     sw, sh = color_strip.size
     ox, oy = offset
-    
-    print("\n[CANVAS_INFO]")
-    print(f" canvas_w={tw}, strip_w={sw}, margin_x={ox*2}")
-    print(f" canvas_h={th}, strip_h={sh}, margin_y={oy*2}")
-
-
 
     # -------------------------------
     # 가로/세로 strip 방향 구분

@@ -1,36 +1,23 @@
 import os
-import struct
-import io
+import subprocess
 import tempfile
-import win32clipboard
-import win32con
 from PIL import Image
-from automation.windly_config_loader import get_windly_temp_dir
-import hashlib
-
-
-def create_explorer_hdrop(file_list):
-    file_utf16_list = []
-    for path in file_list:
-        file_utf16_list.append(path.encode("utf-16le") + b"\x00\x00")
-    file_block = b"".join(file_utf16_list) + b"\x00\x00"
-
-    pFiles = struct.pack("<I", 20)
-    flags = struct.pack("<I", 0)
-    point = struct.pack("<ii", 0, 0)
-
-    return pFiles + flags + point + file_block
 
 
 def copy_files_to_clipboard(file_list):
-    data = create_explorer_hdrop(file_list)
-    win32clipboard.OpenClipboard()
-    win32clipboard.EmptyClipboard()
-    win32clipboard.SetClipboardData(win32con.CF_HDROP, data)
-    win32clipboard.CloseClipboard()
+    """
+    macOS에서 파일 목록을 클립보드로 복사 (Finder 형식)
+    현재 프로젝트에서 사용되지 않는 것으로 보이므로 stub으로 유지
+    """
+    print(f"[CLIPBOARD][FILES] copy_files_to_clipboard not implemented on macOS")
+    pass
 
 
 def copy_image_file(path):
+    """
+    macOS에서 이미지를 클립보드로 복사
+    osascript를 사용하여 이미지를 PNG 형식으로 클립보드에 저장
+    """
     print(f"[CLIPBOARD][IMG] start copy_image_file")
     print(f"[CLIPBOARD][IMG] path = {path}")
 
@@ -38,71 +25,61 @@ def copy_image_file(path):
         print(f"[CLIPBOARD][IMG][ERROR] file not found")
         return
 
-    img = Image.open(path)
     try:
-        with open(path, "rb") as f:
-            md5 = hashlib.md5(f.read()).hexdigest()
-        print(f"[CLIPBOARD][IMG] opened image size={img.size}, mode={img.mode}, md5={md5}")
-    except Exception as e:
-        print(f"[CLIPBOARD][IMG] opened image size={img.size}, mode={img.mode}, md5=ERR ({e})")
+        img = Image.open(path)
+        print(f"[CLIPBOARD][IMG] opened image size={img.size}, mode={img.mode}")
 
-    if img.mode != "RGB":
-        img = img.convert("RGB")
-        print(f"[CLIPBOARD][IMG] converted to RGB")
+        # PNG 형식으로 임시 파일 생성
+        with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+            tmp_path = tmp_file.name
 
-    output = io.BytesIO()
-    img.save(output, "BMP")
-    bmp_bytes = output.getvalue()
-    output.close()
+            # RGBA 모드로 변환하여 투명도 지원
+            if img.mode not in ('RGB', 'RGBA'):
+                img = img.convert('RGBA')
+                print(f"[CLIPBOARD][IMG] converted to RGBA")
 
-    print(f"[CLIPBOARD][IMG] BMP total bytes = {len(bmp_bytes)}")
+            img.save(tmp_path, 'PNG')
+            print(f"[CLIPBOARD][IMG] saved temp PNG to {tmp_path}")
 
-    data = bmp_bytes[14:]
-    print(f"[CLIPBOARD][IMG] DIB bytes = {len(data)}")
+        # osascript를 사용하여 클립보드에 복사
+        # PNG 형식 (PNGf) 또는 TIFF 형식 (TIFFf)으로 복사 가능
+        script = f'''
+        set the clipboard to (read (POSIX file "{tmp_path}") as «class PNGf»)
+        '''
 
-    if len(data) < 100:
-        print(f"[CLIPBOARD][IMG][WARN] DIB size too small, suspicious")
+        result = subprocess.run(
+            ['osascript', '-e', script],
+            capture_output=True,
+            text=True
+        )
 
-    try:
-        win32clipboard.OpenClipboard()
-        win32clipboard.EmptyClipboard()
-        win32clipboard.SetClipboardData(win32con.CF_DIB, data)
-        win32clipboard.CloseClipboard()
-        print(f"[CLIPBOARD][IMG] CF_DIB set SUCCESS")
-        # Debug: verify clipboard content (optional)
-        if os.environ.get("WINDLY_DEBUG_CLIPBOARD") == "1":
-            try:
-                win32clipboard.OpenClipboard()
-                dib = win32clipboard.GetClipboardData(win32con.CF_DIB)
-                win32clipboard.CloseClipboard()
+        # 임시 파일 삭제
+        try:
+            os.unlink(tmp_path)
+        except:
+            pass
 
-                # Rebuild BMP header from DIB
-                header_size = struct.unpack("<I", dib[:4])[0]
-                bmp_size = 14 + len(dib)
-                offset = 14 + header_size
-                bmp_header = struct.pack("<2sIHHI", b"BM", bmp_size, 0, 0, offset)
-                bmp_bytes = bmp_header + dib
+        if result.returncode == 0:
+            print(f"[CLIPBOARD][IMG] Image copied to clipboard SUCCESS")
+        else:
+            print(f"[CLIPBOARD][IMG][ERROR] osascript failed: {result.stderr}")
 
-                img = Image.open(io.BytesIO(bmp_bytes))
-                img.load()
-
-                temp_dir = get_windly_temp_dir() if os.path.isdir(get_windly_temp_dir()) else tempfile.gettempdir()
-                os.makedirs(temp_dir, exist_ok=True)
-                out_path = os.path.join(temp_dir, "clipboard_last.png")
-                img.save(out_path)
-                print(f"[CLIPBOARD][IMG][DEBUG] saved clipboard image -> {out_path}")
-            except Exception as e:
-                try:
-                    win32clipboard.CloseClipboard()
-                except Exception:
-                    pass
-                print(f"[CLIPBOARD][IMG][DEBUG] clipboard verify failed: {e}")
     except Exception as e:
         print(f"[CLIPBOARD][IMG][ERROR] clipboard failed:", e)
 
 
 def copy_text(text):
-    win32clipboard.OpenClipboard()
-    win32clipboard.EmptyClipboard()
-    win32clipboard.SetClipboardData(win32con.CF_UNICODETEXT, text)
-    win32clipboard.CloseClipboard()
+    """
+    macOS에서 텍스트를 클립보드로 복사
+    pbcopy 명령을 사용
+    """
+    try:
+        process = subprocess.Popen(
+            ['pbcopy'],
+            stdin=subprocess.PIPE,
+            env={'LANG': 'en_US.UTF-8'}
+        )
+        process.communicate(text.encode('utf-8'))
+        print(f"[CLIPBOARD][TEXT] Text copied to clipboard SUCCESS")
+    except Exception as e:
+        print(f"[CLIPBOARD][TEXT][ERROR] clipboard failed:", e)

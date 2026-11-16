@@ -7,8 +7,6 @@ from PIL import Image, ImageTk
 
 from gui.widgets.scroll_frame import ScrollFrame
 from gui.widgets.thumbnail_helper import load_thumbnail_async
-from gui.widgets.image_loader import load_image_async
-from image_tools.image_source_resolver import resolve_item_image_sources
 from gui.product_detail.utils import Toast
 
 from image_tools.config import TEMP_IMG_DIR
@@ -35,21 +33,11 @@ class ThumbnailPanel(ttk.LabelFrame):
         self.template_slots = {
             "상의 1명": ["상의 1명"],
             "하의 1명": ["하의 1명"],
-            "상의 2명": ["상의 1명", "상의 1명"],
-            "상의 2명(겹침-균등확장)": ["상의 1명", "상의 1명"],
-            "하의 2명": ["하의 1명", "하의 1명"],
-            "하의 2명(겹침-균등확장)": ["하의 1명", "하의 1명"],
             "전신 2명": ["전신 1명", "전신 1명"],
-            "전신 3명": ["전신 1명", "전신 1명", "전신 1명"],
-            "상의 3명(겹침-균등확장)": ["상의 1명", "상의 1명", "상의 1명"],
-            "상의 4명(겹침-균등확장)": ["상의 1명", "상의 1명", "상의 1명", "상의 1명"],
-            "하의 3명(겹침-균등확장)": ["하의 1명", "하의 1명", "하의 1명"],
-            "하의 4명(겹침-균등확장)": ["하의 1명", "하의 1명", "하의 1명", "하의 1명"],
             "제품 1개": ["제품 1개"],
             "제품: 메인1/서브2": ["메인 1개", "서브 1개", "서브 1개"],
             "제품: 메인1/서브3": ["메인 1개", "서브 1개", "서브 1개", "서브 1개"],
         }
-
 
 
         # ⭐ 드롭다운 표시 변수 (인스턴스 변수)
@@ -217,20 +205,12 @@ class ThumbnailPanel(ttk.LabelFrame):
 
         for url in image_urls:
             if url and url not in self._thumb_img_dict:
-                if isinstance(url, str) and os.path.exists(url):
-                    load_image_async(
-                        url,
-                        THUMB_SIZE,
-                        lambda p, u=url: on_loaded(p, u),
-                        root
-                    )
-                else:
-                    load_thumbnail_async(
-                        url,
-                        THUMB_SIZE,
-                        lambda p, u=url: on_loaded(p, u),
-                        root
-                    )
+                load_thumbnail_async(
+                    url,
+                    THUMB_SIZE,
+                    lambda p, u=url: on_loaded(p, u),
+                    root
+                )
 
         self._refresh_slots()
 
@@ -273,18 +253,9 @@ class ThumbnailPanel(ttk.LabelFrame):
         # 전체 이미지 목록 생성
         # -----------------------------------------------------------
         all_imgs = [
-            url for url in (resolve_item_image_sources(item) or [])
-            if isinstance(url, str)
+            url for url in item.parsed_raw.get("images", [])
+            if isinstance(url, str) and url.startswith("http")
         ]
-        try:
-            sample = all_imgs[:6]
-            local_cnt = sum(1 for u in all_imgs if os.path.exists(u))
-            print(f"[THUMB_PANEL] sources len={len(all_imgs)} local={local_cnt} url={len(all_imgs)-local_cnt}")
-            for i, u in enumerate(sample):
-                flag = "LOCAL" if os.path.exists(u) else "URL"
-                print(f"[THUMB_PANEL] src[{i}] {flag} {u}")
-        except Exception as e:
-            print("[THUMB_PANEL] source log failed:", e)
 
         # -----------------------------------------------------------
         # 이미지 썸네일 그리드
@@ -326,10 +297,7 @@ class ThumbnailPanel(ttk.LabelFrame):
                 else:
                     label.config(text="FAIL")
 
-            if isinstance(url, str) and os.path.exists(url):
-                load_image_async(url, THUMB_SIZE, on_loaded, root)
-            else:
-                load_thumbnail_async(url, THUMB_SIZE, on_loaded, root)
+            load_thumbnail_async(url, THUMB_SIZE, on_loaded, root)
 
             cell.bind("<Button-1>", lambda e, u=url: add_image(u))
             lb.bind("<Button-1>",   lambda e, u=url: add_image(u))
@@ -387,60 +355,23 @@ class ThumbnailPanel(ttk.LabelFrame):
                 Toast.show(self, "템플릿/이미지/설정이 부족합니다.", 2000)
                 return
 
-            # 🔒 작업 중 버튼 연타 방지 + 창 비활성
-            top = self.winfo_toplevel()
             try:
-                top.attributes("-disabled", True)
-            except:
-                pass
+                from image_tools.thumbnail_runner import run_thumbnail_job
+                ok, out_path = run_thumbnail_job(job)
 
-            def worker():
-                try:
-                    from image_tools.thumbnail_runner import run_thumbnail_job
-                    ok, out_path = run_thumbnail_job(job)
+                if not ok or not out_path:
+                    Toast.show(self, "썸네일 생성 실패", 2000)
+                    return
 
-                    def ui_success():
-                        try:
-                            top.attributes("-disabled", False)
-                        except:
-                            pass
+                self.generated_thumb_path = out_path
+                show_big(out_path)
+                Toast.show(self, "썸네일 생성 완료", 2000)
 
-                        if ok and out_path:
-                            self.generated_thumb_path = out_path
-                            show_big(out_path)
-                            Toast.show(self, "썸네일 생성 완료", 2000)
-                        else:
-                            Toast.show(self, "썸네일 생성 실패", 2000)
+            except Exception as e:
+                print("[THUMB ERROR]", e)
+                Toast.show(self, "썸네일 생성 오류", 2000)
 
-                        # ⭐ 창 앞으로 복구
-                        top.lift()
-                        top.focus_force()
-
-                        clean_temp_images()
-
-                    self.after(0, ui_success)
-
-                except Exception as e:
-                    def ui_fail():
-                        try:
-                            top.attributes("-disabled", False)
-                        except:
-                            pass
-
-                        print("[THUMB ERROR]", e)
-                        Toast.show(self, "썸네일 생성 오류", 2000)
-
-                        top.lift()
-                        top.focus_force()
-
-                        clean_temp_images()
-
-                    self.after(0, ui_fail)
-
-            # 🔥 UI 스레드 블로킹 제거
-            import threading
-            threading.Thread(target=worker, daemon=True).start()
-
+            clean_temp_images()
 
 
         ttk.Button(parent, text="썸네일 생성", command=regen).pack(pady=5)
@@ -470,11 +401,17 @@ class ThumbnailPanel(ttk.LabelFrame):
 
         popup = tk.Toplevel(self)
         popup.title("썸네일 구성 방식 선택")
-        popup.geometry("540x630")
+        popup.geometry("360x320")
         popup.grab_set()
 
         if not hasattr(self, "_tree_img_cache"):
             self._tree_img_cache = []
+
+        style = ttk.Style(popup)
+        style.configure("Treeview", rowheight=70)
+
+        tree = ttk.Treeview(popup, show="tree")
+        tree.pack(fill="both", expand=True)
 
         from gui.widgets.thumbnail_helper import make_square_thumbnail
 
@@ -498,96 +435,43 @@ class ThumbnailPanel(ttk.LabelFrame):
 
         icon1 = load_icon("thumb01.jpg")
         icon2 = load_icon("thumb02.jpg")
-        icon7 = load_icon("thumb07.jpg")
-        icon11 = load_icon("thumb11.jpg")
-        icon8 = load_icon("thumb08.jpg")
         icon3 = load_icon("thumb03.jpg")
-        icon10 = load_icon("thumb10.jpg")
-        icon12 = load_icon("thumb12.jpg")
-        icon13 = load_icon("thumb13.jpg")
-        icon14 = load_icon("thumb14.jpg")
-        icon15 = load_icon("thumb15.jpg")
         icon4 = load_icon("thumb04.jpg")
         icon5 = load_icon("thumb05.jpg")
         icon6 = load_icon("thumb06.jpg")
-        icon9 = load_icon("thumb09.jpg")
 
-        # 그리드 버튼 구성 (스크롤)
-        container = ttk.Frame(popup)
-        container.pack(fill="both", expand=True)
+        id1 = tree.insert("", "end", text=" 상의 1명", image=icon1)
+        id2 = tree.insert("", "end", text=" 하의 1명", image=icon2)
+        id3 = tree.insert("", "end", text=" 전신 2명", image=icon3)
+        id4 = tree.insert("", "end", text=" 제품 1개", image=icon4)
+        id5 = tree.insert("", "end", text=" 제품: 메인1/서브2", image=icon5)
+        id6 = tree.insert("", "end", text=" 제품: 메인1/서브3", image=icon6)
 
-        canvas = tk.Canvas(container, highlightthickness=0)
-        vscroll = ttk.Scrollbar(container, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=vscroll.set)
+        # -----------------------
+        # 클릭 시 선택 강제
+        # -----------------------
+        def on_click(event):
+            row = tree.identify_row(event.y)
+            if row:
+                tree.selection_set(row)
+                tree.focus(row)
 
-        vscroll.pack(side="right", fill="y")
-        canvas.pack(side="left", fill="both", expand=True)
+        tree.bind("<ButtonRelease-1>", on_click)
 
-        grid = ttk.Frame(canvas, padding=8)
-        grid_id = canvas.create_window((0, 0), window=grid, anchor="nw")
+        # -----------------------
+        # 선택 이벤트
+        # -----------------------
+        def select(_):
+            sel = tree.selection()
+            if not sel:
+                return
+            itemID = sel[0]
+            name = tree.item(itemID, "text").strip()
 
-        items = [
-            ("상의 1명", icon1),
-            ("하의 1명", icon2),
-            ("상의 2명", icon7),
-            ("상의 2명(겹침-균등확장)", icon11),
-            ("하의 2명", icon8),
-            ("하의 2명(겹침-균등확장)", icon15),
-            ("전신 2명", icon3),
-            ("전신 3명", icon10),
-            ("상의 3명(겹침-균등확장)", icon9),
-            ("상의 4명(겹침-균등확장)", icon13),
-            ("하의 3명(겹침-균등확장)", icon12),
-            ("하의 4명(겹침-균등확장)", icon14),
-            ("제품 1개", icon4),
-            ("제품: 메인1/서브2", icon5),
-            ("제품: 메인1/서브3", icon6),
-        ]
-
-        def pick(name):
             self.apply_template(name)
             popup.destroy()
 
-        cols = 3
-        for idx, (name, icon) in enumerate(items):
-            r = idx // cols
-            c = idx % cols
-            btn = ttk.Button(
-                grid,
-                text=name,
-                image=icon,
-                compound="top",
-                command=lambda n=name: pick(n),
-                width=18
-            )
-            btn.grid(row=r, column=c, padx=8, pady=8, sticky="nsew")
-
-        for c in range(cols):
-            grid.columnconfigure(c, weight=1)
-        for r in range((len(items) + cols - 1) // cols):
-            grid.rowconfigure(r, weight=1)
-
-        def _on_frame_configure(_):
-            canvas.configure(scrollregion=canvas.bbox("all"))
-
-        def _on_canvas_configure(event):
-            canvas.itemconfigure(grid_id, width=event.width)
-
-        grid.bind("<Configure>", _on_frame_configure)
-        canvas.bind("<Configure>", _on_canvas_configure)
-
-        # 마우스 휠 스크롤
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-        def _bind_mousewheel(_):
-            canvas.bind_all("<MouseWheel>", _on_mousewheel)
-
-        def _unbind_mousewheel(_):
-            canvas.unbind_all("<MouseWheel>")
-
-        popup.bind("<Enter>", _bind_mousewheel)
-        popup.bind("<Leave>", _unbind_mousewheel)
+        tree.bind("<<TreeviewSelect>>", select)
 
 
     # ============================================================
@@ -638,10 +522,7 @@ class ThumbnailPanel(ttk.LabelFrame):
             else:
                 label.config(text="FAIL")
 
-        if isinstance(url, str) and os.path.exists(url):
-            load_image_async(url, (140, 140), on_loaded, root)
-        else:
-            load_thumbnail_async(url, (140, 140), on_loaded, root)
+        load_thumbnail_async(url, (140, 140), on_loaded, root)
 
 
 

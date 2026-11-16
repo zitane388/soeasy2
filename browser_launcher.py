@@ -8,6 +8,9 @@ def open_in_chrome(url: str):
     """설치된 Chrome을 찾아서 해당 URL을 띄운다 (확장프로그램 활성 프로필 유지)."""
 
     chrome_paths = [
+        # macOS
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        # Windows
         r"C:\Program Files\Google\Chrome\Application\chrome.exe",
         r"C:\Program Files (x86)\Google\Chrome\Application\chrome.exe"
     ]

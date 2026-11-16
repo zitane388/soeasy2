@@ -1,8 +1,4 @@
-from utils.option_normalizer import (
-    normalize_options,
-    ensure_option_schema,
-    normalize_option_axes_and_variants,
-)
+from utils.option_normalizer import normalize_options, ensure_option_schema
 from utils.html_cleaner import html_to_text, format_description_blocks
 from utils.option_translator import translate_option_groups
 import re, hashlib, time
@@ -63,11 +59,6 @@ class ProductItem:
         # 이미지 및 영상
         self.thumbnail_url = None
         self.make_thumbnail_img = None
-        
-        self.logo_job_results: dict | None = None
-        self.final_image_sources: list[str] | None = None
-        self.image_checked_map: dict[str, bool] = {}
-        
         self.video_url = None
         self.video_file = None
         
@@ -130,9 +121,6 @@ class ProductItem:
         if "options" in parsed:
             parsed["options"] = translate_option_groups(parsed["options"])
 
-        # options 기반 범용 축/조합 구조 보강
-        parsed = normalize_option_axes_and_variants(parsed)
-
         self.parsed_raw = parsed
 
         self.model_number = parsed.get("model_number")
@@ -146,7 +134,6 @@ class ProductItem:
         from utils.utils_translator import translate_to_korean
         from pname_keyword import extract_keywords
         from utils.product_name_generator import generate_final_name
-        from utils.brand_canonicalizer import canonicalize_brand
 
         raw = self.original_name
         self.name_keywords = []
@@ -163,38 +150,12 @@ class ProductItem:
                     self.original_ko_name = ko_name
 
                 # ③ 키워드 추출
-                # Use parser-provided product brand when available.
-                raw_keyword_brand = (parsed.get("product_brand") or self.brand or "").strip()
-                keyword_brand = canonicalize_brand(
-                    raw_keyword_brand,
-                    ko_name,
-                )
-                self.name_keywords = extract_keywords(self.original_ko_name, keyword_brand)
+                self.name_keywords = extract_keywords(self.original_ko_name, self.brand)
 
                 # ④ LLM 상품명 생성
-                self.final_name = generate_final_name(
-                    product_item=self,
-                    translated_name=self.original_ko_name,
-                    keyword_list=self.name_keywords,
-                    image_url=None
-                )
+                self.final_name = generate_final_name(self.original_ko_name, self.name_keywords)
                 if not self.final_name:
                     self.final_name = self.original_ko_name
-
-                # keyword 추출 실패 시 compact 결과로 1회 재수집 후 재생성
-                if (not self.name_keywords) and self.final_name:
-                    retry_keywords = extract_keywords(self.final_name, keyword_brand)
-                    if retry_keywords:
-                        print(f"[NAME_RETRY] keywords recollected: {retry_keywords}")
-                        self.name_keywords = retry_keywords
-                        regenerated = generate_final_name(
-                            product_item=self,
-                            translated_name=self.final_name,
-                            keyword_list=self.name_keywords,
-                            image_url=None
-                        )
-                        if regenerated:
-                            self.final_name = regenerated
             except Exception as e:
                 print("[상품명 생성 오류]", e)
         
@@ -214,20 +175,9 @@ class ProductItem:
         # =====================================================================
         # 대표 이미지
         # =====================================================================
-        raw_images = parsed.get("images", [])
-
-        # 원본은 parsed_raw에 그대로 둔다 (절대 수정 금지)
-        # 작업용 리스트는 여기서 1회 복사
-        self.final_image_sources = list(raw_images) if raw_images else []
-        
-        self.image_checked_map = {src: False for src in self.final_image_sources}
-
-        # 대표 이미지도 작업용 기준
-        self.thumbnail_url = (
-            self.final_image_sources[0]
-            if self.final_image_sources
-            else None
-        )
+        imgs = parsed.get("images",[])
+        if imgs:
+            self.thumbnail_url = imgs[0]
             
         # =====================================================================
         # 영상 URL

@@ -16,7 +16,6 @@ def build_lower_body_box(
     lower_body_box: Box,
     landmarks: dict | None = None,
     image_size: tuple[int, int] | None = None,
-    rule_key: str | None = None
 ) -> Box:
     """
     lower_body_box: 골반~발목 기준 raw 박스
@@ -25,7 +24,6 @@ def build_lower_body_box(
     """
 
     box = lower_body_box
-    key = rule_key or "lower_body"
 
     # --------------------------------------------------
     # 1) 좌우 확장 (다리 벌림 대응)
@@ -55,7 +53,7 @@ def build_lower_body_box(
     # --------------------------------------------------
     # 2) 패딩
     # --------------------------------------------------
-    padding = BOX_RULES[key]["padding"]
+    padding = BOX_RULES["lower_body"]["padding"]
     box = box.apply_padding(padding)
 
     # --------------------------------------------------

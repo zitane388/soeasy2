@@ -1,22 +1,16 @@
 # windly_config_loader.py
-import json
 import os
+from dotenv import load_dotenv
+from utils.path import p
+
+load_dotenv()
 
 # ------------------------------------------
 # 기본 경로 설정
 # ------------------------------------------
 
-# 프로젝트 루트
-BASE_DIR = r"C:/soeasy2"
-
 # Windly 전용 임시폴더 (영상, 옵션/사이즈 이미지 등 저장)
-WINDLY_TEMP_DIR = os.path.join(BASE_DIR, "windly_temp")
-
-# windly_config.json 위치
-CONFIG_PATH = os.path.join(
-    os.path.dirname(__file__),
-    "windly_config.json"
-)
+WINDLY_TEMP_DIR = p("windly_temp")
 
 # ------------------------------------------
 # Windly 계정 정보 로드
@@ -24,20 +18,18 @@ CONFIG_PATH = os.path.join(
 
 def load_windly_config():
     """
-    windly_config.json에서 user_id / user_pw를 읽는다.
+    .env 파일에서 WINDLY_USER_ID / WINDLY_USER_PW를 읽는다.
     """
-    if not os.path.exists(CONFIG_PATH):
-        raise FileNotFoundError(
-            f"Windly 설정 파일을 찾을 수 없습니다: {CONFIG_PATH}"
+    user_id = os.getenv("WINDLY_USER_ID")
+    user_pw = os.getenv("WINDLY_USER_PW")
+
+    if not user_id or not user_pw:
+        raise RuntimeError(
+            "환경변수 WINDLY_USER_ID, WINDLY_USER_PW가 설정되지 않았습니다.\n"
+            ".env 파일에 Windly 계정 정보를 설정해주세요."
         )
 
-    with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if "user_id" not in data or "user_pw" not in data:
-        raise ValueError("windly_config.json 파일에 user_id, user_pw 필드가 없습니다.")
-
-    return data["user_id"], data["user_pw"]
+    return user_id, user_pw
 
 # ------------------------------------------
 # Windly temp 디렉토리 반환 (중앙 관리)

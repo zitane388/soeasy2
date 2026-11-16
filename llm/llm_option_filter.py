@@ -5,8 +5,12 @@ from llm.llm_client import get_prompt, request_llm
 
 
 def _extract_json(text: str) -> str:
+    """
+    ```json ... ``` 또는 ``` ... ``` 제거
+    """
     text = text.strip()
 
+    # ```json ... ``` 또는 ``` ... ``` 제거
     if text.startswith("```"):
         text = re.sub(r"^```[a-zA-Z]*\n?", "", text)
         text = re.sub(r"\n?```$", "", text)
@@ -14,15 +18,10 @@ def _extract_json(text: str) -> str:
     return text.strip()
 
 
-def pick_option_groups_by_llm(
-    option_groups: dict,
-    hint_keywords: list[str],
-    product_title: str = ""
-) -> list[str]:
+def pick_option_groups_by_llm(option_groups: dict, hint_keywords: list[str]) -> list[str]:
     prompt_template = get_prompt("PRODUCT_OPTION_GROUP_FILTER_PROMPT")
 
     prompt = prompt_template.format(
-        product_title=product_title,
         option_groups=json.dumps(option_groups, ensure_ascii=False, indent=2),
         hint_keywords=", ".join(hint_keywords),
     )

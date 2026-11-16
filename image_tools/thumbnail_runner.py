@@ -1,4 +1,4 @@
-﻿import os
+import os
 import tempfile
 import requests
 from PIL import Image
@@ -7,35 +7,37 @@ from utils.path import p
 from image_tools.thumb_extensions.pipeline import apply_thumbnail_extensions
 from image_tools.thumbnail_engine.pipeline import ThumbnailPipeline
 from image_tools.thumbnail_engine.layout.horizontal_slot_layout import HorizontalSlotLayout
-from image_tools.thumbnail_engine.layout.overlap_double_horizontal_uniform_layout import OverlapDoubleHorizontalUniformLayout
-from image_tools.thumbnail_engine.layout.overlap_quad_horizontal_uniform_layout import OverlapQuadHorizontalUniformLayout
-from image_tools.thumbnail_engine.layout.overlap_triple_horizontal_uniform_layout import OverlapTripleHorizontalUniformLayout
 from image_tools.thumbnail_engine.layout.overlap_triple_layout import OverlapTripleLayout
 from image_tools.thumbnail_engine.layout.overlap_double_layout import OverlapDoubleLayout
 from image_tools.image_fetcher import fetch_image_content
 
-from io import BytesIO
-
 def _download_image_to_temp(url: str) -> str:
+    """
+    URL 이미지를 고성능 로더로 내려받아 임시 파일로 저장합니다.
+    MUJI 보안 차단 및 주소 변환을 자동으로 처리합니다.
+    """
     try:
+        # 1. 고성능 로더 호출 (주소 변환 및 HTTP/2 우회 내장)
         content = fetch_image_content(url)
+        
         if not content:
             raise Exception(f"이미지 데이터를 가져올 수 없습니다: {url[:50]}")
 
-        # 1) 실제 이미지인지 검증하고 디코딩
-        img = Image.open(BytesIO(content)).convert("RGB")
-
-        # 2) 우리가 통제하는 포맷(JPEG)으로 재저장
+        # 2. 임시 파일 생성
+        # suffix를 유지하여 이미지 라이브러리가 형식을 인식하게 함
         fd, path = tempfile.mkstemp(suffix=".jpg")
-        with os.fdopen(fd, "wb") as f:
-            img.save(f, format="JPEG", quality=95)
-
-        return path
-
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(content)
+            return path
+        except Exception as e:
+            # 파일 쓰기 실패 시 생성된 파일은 닫아줌
+            if 'f' in locals(): f.close()
+            raise e
+            
     except Exception as e:
         print(f"[DOWNLOAD_ERROR] {e}")
         return ""
-
 
 
 def run_thumbnail_job(job):
@@ -60,7 +62,7 @@ def run_thumbnail_job(job):
         ok = False
 
         # ======================================================
-        # 1) URL -> 로컬 임시 파일
+        # 1) URL → 로컬 파일
         # ======================================================
         local_paths = []
         for url in image_urls:
@@ -72,9 +74,6 @@ def run_thumbnail_job(job):
         # 2) 템플릿별 썸네일 생성
         # ======================================================
         layout_horizontal = HorizontalSlotLayout()
-        layout_overlap_double_h_uniform = OverlapDoubleHorizontalUniformLayout()
-        layout_overlap_quad_h_uniform = OverlapQuadHorizontalUniformLayout()
-        layout_overlap_triple_h_uniform = OverlapTripleHorizontalUniformLayout()
         layout_overlap = OverlapTripleLayout()
         layout_overlap_double = OverlapDoubleLayout()
 
@@ -156,321 +155,12 @@ def run_thumbnail_job(job):
             final.save(out_path)
             ok = True
 
-        elif template == "전신 3명":
-            if len(local_paths) < 3:
-                raise ValueError("전신 3명 템플릿은 이미지 3개 필요")
-
-            canvas_size = (1000, 1000)
-            canvas_w, canvas_h = canvas_size
-            base_w = canvas_w // 3
-            slot_w = int(base_w * 1.22)
-            overlap = int(base_w * 0.20)
-            step = slot_w - overlap
-            center_x = canvas_w // 2
-            center_slot_x = center_x - (slot_w // 2)
-
-            # 3인 전신 전용: 슬롯 폭을 넓히고 중앙으로 조금 더 모이게 배치
-            slots = [
-                {"size": (slot_w, canvas_h), "pos": (center_slot_x - step, 0)},
-                {"size": (slot_w, canvas_h), "pos": (center_slot_x, 0)},
-                {"size": (slot_w, canvas_h), "pos": (center_slot_x + step, 0)},
-            ]
-            imgs = []
-            for i in range(3):
-                img = pipe.build_person_thumbnail(
-                    image_path=local_paths[i],
-                    target_type="full_body",
-                    canvas_type="square",
-                    box_rule_key="full_body_triple_wide",
-                    override_size=slots[i]["size"],
-                    transparent=True,
-                    force_remove_bg=False,
-                )
-                imgs.append(img)
-
-            final = layout_horizontal.apply(
-                images=imgs,
-                canvas_size=canvas_size,
-                to_rgb=True,
-            )
-            final.save(out_path)
-            ok = True
-
-
-        elif template == "상의 3명(겹침-균등확장)":
-            if len(local_paths) < 3:
-                raise ValueError("상의 3명(겹침-균등확장) 템플릿은 이미지 3개 필요")
-
-            slots = layout_overlap_triple_h_uniform.get_slots_info(canvas_size=(1000, 1000), image_count=3)
-            try:
-                print(f"[THUMB][LAYOUT] template={template} slots={[(s['size'], s['pos']) for s in slots]}")
-            except Exception:
-                pass
-            imgs = []
-            # 그리는 순서: left -> right -> center (center가 최상단)
-            order = [0, 2, 1]
-            for idx, i in enumerate(order):
-                slot = slots[idx]
-                img = pipe.build_person_thumbnail(
-                    image_path=local_paths[i],
-                    target_type="upper_body",
-                    box_rule_key="upper_body_overlap_uniform",
-                    canvas_type="half_vertical",
-                    override_size=slot["size"],
-                    transparent=True,
-                    force_remove_bg=False,
-                )
-                imgs.append(img)
-
-            final = layout_overlap_triple_h_uniform.apply(
-                images=imgs,
-                canvas_size=(1000, 1000),
-                overlap_ratio=0.32,
-                to_rgb=True,
-            )
-            final.save(out_path)
-            ok = True
-
-        elif template == "상의 4명(겹침-균등확장)":
-            if len(local_paths) < 4:
-                raise ValueError("상의 4명(겹침-균등확장) 템플릿은 이미지 4개 필요")
-
-            slots = layout_overlap_quad_h_uniform.get_slots_info(canvas_size=(1000, 1000), image_count=4)
-            try:
-                print(f"[THUMB][LAYOUT] template={template} slots={[(s['size'], s['pos']) for s in slots]}")
-            except Exception:
-                pass
-
-            imgs = []
-            # paint order: left outer, right outer, left inner, right inner
-            # source order remap: L, R, CL, CR
-            order = [0, 3, 1, 2]
-            for idx, i in enumerate(order):
-                slot = slots[idx]
-                img = pipe.build_person_thumbnail(
-                    image_path=local_paths[i],
-                    target_type="upper_body",
-                    box_rule_key="upper_body_overlap_uniform",
-                    canvas_type="half_vertical",
-                    override_size=slot["size"],
-                    transparent=True,
-                    force_remove_bg=False,
-                )
-                imgs.append(img)
-
-            final = layout_overlap_quad_h_uniform.apply(
-                images=imgs,
-                canvas_size=(1000, 1000),
-                overlap_ratio=0.64,
-                outer_inward_ratio=0.26,
-                to_rgb=True,
-            )
-            final.save(out_path)
-            ok = True
-
-        elif template == "하의 3명(겹침-균등확장)":
-            if len(local_paths) < 3:
-                raise ValueError("하의 3명(겹침-균등확장) 템플릿은 이미지 3개 필요")
-
-            slots = layout_overlap_triple_h_uniform.get_slots_info(canvas_size=(1000, 1000), image_count=3)
-            try:
-                print(f"[THUMB][LAYOUT] template={template} slots={[(s['size'], s['pos']) for s in slots]}")
-            except Exception:
-                pass
-            imgs = []
-            # 그리는 순서: left -> right -> center (center가 최상단)
-            order = [0, 2, 1]
-            for idx, i in enumerate(order):
-                slot = slots[idx]
-                img = pipe.build_person_thumbnail(
-                    image_path=local_paths[i],
-                    target_type="lower_body",
-                    box_rule_key="lower_body_overlap_uniform",
-                    canvas_type="half_vertical",
-                    override_size=slot["size"],
-                    transparent=True,
-                    force_remove_bg=False,
-                )
-                imgs.append(img)
-
-            final = layout_overlap_triple_h_uniform.apply(
-                images=imgs,
-                canvas_size=(1000, 1000),
-                overlap_ratio=0.32,
-                to_rgb=True,
-            )
-            final.save(out_path)
-            ok = True
-
-        elif template == "하의 4명(겹침-균등확장)":
-            if len(local_paths) < 4:
-                raise ValueError("하의 4명(겹침-균등확장) 템플릿은 이미지 4개 필요")
-
-            slots = layout_overlap_quad_h_uniform.get_slots_info(canvas_size=(1000, 1000), image_count=4)
-            try:
-                print(f"[THUMB][LAYOUT] template={template} slots={[(s['size'], s['pos']) for s in slots]}")
-            except Exception:
-                pass
-
-            imgs = []
-            # paint order: left outer, right outer, left inner, right inner
-            # source order remap: L, R, CL, CR
-            order = [0, 3, 1, 2]
-            for idx, i in enumerate(order):
-                slot = slots[idx]
-                img = pipe.build_person_thumbnail(
-                    image_path=local_paths[i],
-                    target_type="lower_body",
-                    box_rule_key="lower_body_overlap_uniform",
-                    canvas_type="half_vertical",
-                    override_size=slot["size"],
-                    transparent=True,
-                    force_remove_bg=False,
-                )
-                imgs.append(img)
-
-            final = layout_overlap_quad_h_uniform.apply(
-                images=imgs,
-                canvas_size=(1000, 1000),
-                overlap_ratio=0.64,
-                outer_inward_ratio=0.30,
-                to_rgb=True,
-            )
-            final.save(out_path)
-            ok = True
-        
-        elif template == "상의 2명":
-            if len(local_paths) < 2:
-                raise ValueError("상의 2명 템플릿은 이미지 2개 필요")
-
-            left = pipe.build_person_thumbnail(
-                image_path=local_paths[0],
-                target_type="upper_body",
-                box_rule_key="upper_body_tight_wide",
-                canvas_type="half_vertical",
-                transparent=True,
-                force_remove_bg=False,
-            )
-
-            right = pipe.build_person_thumbnail(
-                image_path=local_paths[1],
-                target_type="upper_body",
-                box_rule_key="upper_body_tight_wide",
-                canvas_type="half_vertical",
-                transparent=True,
-                force_remove_bg=False,
-            )
-
-            final = layout_horizontal.apply(
-                images=[left, right],
-                canvas_size=(1000, 1000),
-                to_rgb=True,
-            )
-            final.save(out_path)
-            ok = True
-
-        elif template == "상의 2명(겹침-균등확장)":
-            if len(local_paths) < 2:
-                raise ValueError("상의 2명(겹침-균등확장) 템플릿은 이미지 2개 필요")
-
-            slots = layout_overlap_double_h_uniform.get_slots_info(canvas_size=(1000, 1000), image_count=2)
-            try:
-                print(f"[THUMB][LAYOUT] template={template} slots={[(s['size'], s['pos']) for s in slots]}")
-            except Exception:
-                pass
-
-            imgs = []
-            for i in range(2):
-                slot = slots[i]
-                img = pipe.build_person_thumbnail(
-                    image_path=local_paths[i],
-                    target_type="upper_body",
-                    box_rule_key="upper_body_overlap_uniform",
-                    canvas_type="half_vertical",
-                    override_size=slot["size"],
-                    transparent=True,
-                    force_remove_bg=False,
-                )
-                imgs.append(img)
-
-            final = layout_overlap_double_h_uniform.apply(
-                images=imgs,
-                canvas_size=(1000, 1000),
-                overlap_ratio=0.46,
-                to_rgb=True,
-            )
-            final.save(out_path)
-            ok = True
-
-        elif template == "하의 2명":
-            if len(local_paths) < 2:
-                raise ValueError("하의 2명 템플릿은 이미지 2개 필요")
-
-            left = pipe.build_person_thumbnail(
-                image_path=local_paths[0],
-                target_type="lower_body",
-                box_rule_key="lower_body_loose",
-                canvas_type="half_vertical",
-                transparent=True,
-                force_remove_bg=False,
-            )
-
-            right = pipe.build_person_thumbnail(
-                image_path=local_paths[1],
-                target_type="lower_body",
-                box_rule_key="lower_body_loose",
-                canvas_type="half_vertical",
-                transparent=True,
-                force_remove_bg=False,
-            )
-
-            final = layout_horizontal.apply(
-                images=[left, right],
-                canvas_size=(1000, 1000),
-                to_rgb=True,
-            )
-            final.save(out_path)
-            ok = True
-
-        elif template == "하의 2명(겹침-균등확장)":
-            if len(local_paths) < 2:
-                raise ValueError("하의 2명(겹침-균등확장) 템플릿은 이미지 2개 필요")
-
-            slots = layout_overlap_double_h_uniform.get_slots_info(canvas_size=(1000, 1000), image_count=2)
-            try:
-                print(f"[THUMB][LAYOUT] template={template} slots={[(s['size'], s['pos']) for s in slots]}")
-            except Exception:
-                pass
-
-            imgs = []
-            for i in range(2):
-                slot = slots[i]
-                img = pipe.build_person_thumbnail(
-                    image_path=local_paths[i],
-                    target_type="lower_body",
-                    box_rule_key="lower_body_overlap_uniform",
-                    canvas_type="half_vertical",
-                    override_size=slot["size"],
-                    transparent=True,
-                    force_remove_bg=False,
-                )
-                imgs.append(img)
-
-            final = layout_overlap_double_h_uniform.apply(
-                images=imgs,
-                canvas_size=(1000, 1000),
-                overlap_ratio=0.46,
-                to_rgb=True,
-            )
-            final.save(out_path)
-            ok = True
-
         # ===============================
-        # Overlap Triple Product
+        # ✅ Overlap Triple Product 추가
         # ===============================
         elif template == "제품: 메인1/서브3":
             if len(local_paths) < 4:
-                raise ValueError("제품: 메인1/서브3 템플릿은 이미지 4개 필요")
+                raise ValueError("제품 겹침 3개 템플릿은 이미지 4개 필요")
 
             main = pipe.build_product_thumbnail(
                 image_path=local_paths[0],
@@ -492,17 +182,17 @@ def run_thumbnail_job(job):
             final = layout_overlap.apply(
                 images=[main] + subs,
                 canvas_size=(1000, 1000),
-                overlap_ratio=0.2,   # test_overlap_triple_product와 동일
+                overlap_ratio=0.2,   # 🔑 test_overlap_triple_product와 동일
                 to_rgb=True,
             )
             final.save(out_path)
             ok = True
         # ===============================
-        # Overlap Double Product
+        # ✅ Overlap Double Product 추가
         # ===============================
         elif template == "제품: 메인1/서브2":
             if len(local_paths) < 3:
-                raise ValueError("제품: 메인1/서브2 템플릿은 이미지 3개 필요")
+                raise ValueError("제품 메인1/서브2 템플릿은 이미지 3개 필요")
 
             main = pipe.build_product_thumbnail(
                 image_path=local_paths[0],
