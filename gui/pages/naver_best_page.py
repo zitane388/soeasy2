@@ -7,7 +7,6 @@ from tkinter import ttk, messagebox
 
 from naver_best.orchestrator import NaverBestOrchestrator
 from naver_best.models import NaverProductItem
-from scrapers.scraper_factory import ScraperFactory
 
 class NaverBestPage:
     def __init__(self, parent, app):
@@ -136,51 +135,11 @@ class NaverBestPage:
     
 
     def start_origin_collect(self):
-        """선택된 대표 이미지 → Google Lens HTML 수집"""
+        """원본 상품 수집 실행"""
         if not self.items:
             messagebox.showwarning("알림", "수집된 베스트 상품이 없습니다.")
             return
-
-        self._safe_status("Google Lens 소싱 시작...")
-
-        def worker():
-            factory = ScraperFactory()
-            lens_scraper = factory.get_lens_scraper()
-
-            count = 0
-
-            for idx, item in enumerate(self.items, start=1):
-                vars_map = self.check_vars.get(idx)
-                if not vars_map:
-                    continue
-
-                # 체크 안된 상품 제외
-                if not vars_map['main'].get():
-                    continue
-
-                img_idx = vars_map['img_select'].get()
-                imgs = getattr(item, 'images', [])
-
-                if not imgs or img_idx >= len(imgs) or not imgs[img_idx]:
-                    continue
-
-                img_url = imgs[img_idx]
-                print(f"\n🔍 Lens 검색 시작: {img_url}")
-
-                html = lens_scraper.search(img_url)
-
-                if html:
-                    print("📦 Lens HTML 수집 완료", len(html))
-                    # 👉 다음 단계: 여기서 Lens 결과 파싱 가능
-                else:
-                    print("❌ Lens 수집 실패")
-
-                count += 1
-
-            self.frame.after(0, lambda: self._safe_status(f"Lens 검색 {count}개 완료"))
-
-        threading.Thread(target=worker, daemon=True).start()
-
+        self._safe_status("원본 상품 수집 기능을 시작합니다...")
 
     def on_collect_finished(self):
         # 이 부분이 실행되어야 버튼이 '상세 수집 중...'에서 '상세상품 수집 시작'으로 돌아옵니다.
@@ -266,9 +225,9 @@ class NaverBestPage:
 
         collect_status = "완료" if getattr(item, 'is_collected', False) else "수집중"
         ttk.Label(info_area, text=f"베스트상품 수집: {collect_status}").pack(anchor="w")
-        ttk.Label(info_area, text=f"원본상품 수집: 대기").pack(anchor="w", pady=(2, 0))
-        ttk.Label(info_area, text="최종 선정: 대기").pack(anchor="w", pady=(2, 0))
-        ttk.Frame(info_area).pack(expand=True)
+        ttk.Label(info_area, text=f"후보 원본상품: 대기").pack(anchor="w", pady=(2, 0))
+        ttk.Label(info_area, text="최종 원본상품: 미선정").pack(anchor="w", pady=(2, 0))
+        ttk.Frame(info_area).pack(expand=True) 
 
         tk.Frame(row, width=1, bg="#e0e0e0").pack(side="right", fill="y", padx=20)
 

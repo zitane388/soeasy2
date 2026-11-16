@@ -28,8 +28,6 @@ class GUJapanParser:
     def parse(self, scraper, original_url, first_html):
 
         soup = BeautifulSoup(first_html, "html.parser")
-        
-        model_number_global = self._extract_model_number_global(soup)
 
         # ---------------------------------------------------
         # 사이즈표 HTML
@@ -184,7 +182,7 @@ class GUJapanParser:
                 ]
             })
 
-        detail_text = results["detail_description"]
+        detail_data = results["detail_description"]
 
         return {
             "original_name": raw_name,
@@ -192,32 +190,16 @@ class GUJapanParser:
             "prices": merged_prices,
             "sizes": [merged_sizes[name] for name in merged_sizes_order],
             "images": final_images,
-            "detail_description": detail_text,
-            "model_number": model_number_global,
+            "detail_description": detail_data.get("text", ""),
+            "model_number": detail_data.get("model_number"),
             "options": option_groups,
             "video": video_url,
             "size_headers_original": headers,
             "size_rows_original": rows,
             "size_html_raw": size_html_raw
         }
-        
-    
-    def _extract_model_number_global(self, soup: BeautifulSoup):
-        """
-        페이지 전체 HTML 기준 상품번호 추출
-        상세설명에 없어도 잡히도록 전역 탐색
-        """
-        import re
 
-        text = soup.get_text(" ", strip=True)
 
-        m = re.search(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", text)
-        if m:
-            return m.group(1)
-
-        return None
-        
-        
     def extract_gu_name_soup(self, soup):
         main = soup.find("main")
         if not main:
@@ -308,24 +290,12 @@ class GUJapanParser:
                     if t:
                         texts.append(t)
         text = "\n\n".join(texts).strip()
-        
-        # 商品番号 / 品番 라벨 + 값 전체 제거
-        text = re.sub(r"商品番号\s*[:：]?\s*[0-9A-Za-z\-]*", "", text)
-        text = re.sub(r"品番\s*[:：]?\s*[0-9A-Za-z\-]*", "", text)
-
-        # 단독 숫자 상품코드 줄 제거
-        lines = text.split("\n")
-        lines = [l for l in lines if not re.fullmatch(r"\s*\d{6,8}\s*", l)]
-        text = "\n".join(lines)
-
-        # 상품번호 제거 후 생긴 ' : ' 단독 구문만 정리
-        text = re.sub(r"\n\s*[:：]\s*\n", "\n", text)
-
-        # 공백 정리
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        text = re.sub(r"[ ]{2,}", " ", text).strip()
-        
-        return text
+        model_number = None
+        m = re.search(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", text)
+        if m:
+            model_number = m.group(1)
+            text = re.sub(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", "", text).strip()
+        return {"text": text, "model_number": model_number}
 
     def _parse_size_chart(self, soup: BeautifulSoup):
         # 1) class="size-chart" table

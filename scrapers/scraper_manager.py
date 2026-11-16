@@ -3,7 +3,6 @@
 from scrapers.scraper_factory import ScraperFactory
 from parsers.product_pages.parser_manager import ParserManager
 from utils.currency_utils import normalize_price_to_krw
-from utils.option_normalizer import normalize_option_axes_and_variants
 import re
 import time
 
@@ -79,9 +78,6 @@ class ScraperManager:
                 results,
                 country=country
             )
-
-            # 옵션 스키마 일반화: options -> option_axes + variants
-            results = normalize_option_axes_and_variants(results)
         except Exception as e:
             print(f"[ERROR] 파싱 과정 중 치명적 오류 발생: {str(e)}")
             return {"error": f"파싱 에러: {str(e)}"}

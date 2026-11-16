@@ -12,10 +12,7 @@ def build_upper_body_box(
     upper_body_box: Box,
     face_box: Box | None,
     landmarks: dict | None = None,
-    rule_key: str | None = None
 ) -> Box:
-    
-    key = rule_key or "upper_body"
 
     # --------------------------------------------------
     # 0) 얼굴 + 상체 merge (기본 영역 확보)
@@ -82,7 +79,7 @@ def build_upper_body_box(
                 h=box.h,
             )
 
-    box = box.apply_padding(BOX_RULES[key]["padding"])
+    box = box.apply_padding(BOX_RULES["upper_body"]["padding"])
     
     if landmarks and "image_w" in landmarks:
         box = box.clamp(

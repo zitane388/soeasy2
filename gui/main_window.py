@@ -213,7 +213,7 @@ class ProductCollectorGUI:
     # 전체 정보 수집
     # ==========================================================
     def collect_all(self):
-    
+
         if not self.products_pending:
             messagebox.showinfo("알림", "수집할 상품이 없습니다.")
             return
@@ -231,8 +231,6 @@ class ProductCollectorGUI:
             success = 0
             failed = []
 
-            from category.services.attribute_prefetch import prefetch_category_attributes
-
             for item in list(self.products_pending):
                 try:
                     result = self.scraper.collect(item.url)
@@ -240,36 +238,8 @@ class ProductCollectorGUI:
                         failed.append(item.url)
                         continue
 
-                    # ============================
-                    # 1️⃣ 상품 데이터 구성
-                    # ============================
                     item.load_data(result)
 
-                    # ============================
-                    # 2️⃣ 🔥 카테고리 속성 프리패치
-                    # ============================
-                    if getattr(item, "category_code", None):
-                        try:
-                            prefetch_category_attributes(
-                                item=item,
-                                session=self.smartstore_session,
-                                product_name=item.final_name,
-                                option_names=[
-                                    v.get("name")
-                                    for opt in item.parsed_raw.get("options", [])
-                                    for v in opt.get("values", [])
-                                    if v.get("name")
-                                ],
-                                detail_text=item.final_detail_text,
-                                image_urls=[item.thumbnail_url] if item.thumbnail_url else [],
-                            )
-                            print("[GUI] attribute_prefetch done:", item.category_code)
-                        except Exception as e:
-                            print("[GUI] attribute_prefetch ERROR:", repr(e))
-
-                    # ============================
-                    # 3️⃣ 수집 완료 처리
-                    # ============================
                     item.collect_status = "완료"
                     if item not in self.products_collected:
                         self.products_collected.append(item)
@@ -292,7 +262,6 @@ class ProductCollectorGUI:
             )
 
         threading.Thread(target=task, daemon=True).start()
-
 
     # ==========================================================
     # SmartStore 세션

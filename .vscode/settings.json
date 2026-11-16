@@ -1,7 +1,0 @@
-{
-    "files.encoding": "utf8",
-    "files.autoGuessEncoding": false,
-    "files.insertFinalNewline": true,
-    "python-envs.defaultEnvManager": "ms-python.python:venv",
-    "python-envs.pythonProjects": []
-}

@@ -2,7 +2,7 @@
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse, urlsplit, urlunsplit
 from utils.detail_description_generator import normalize_size_chart
-import os, re
+import os
 
 IMAGE_EXT = (".jpg", ".jpeg", ".png", ".webp", ".gif")
 
@@ -27,8 +27,6 @@ class UniqloJapanParser:
     def parse(self, scraper, original_url, first_html):
         
         soup = BeautifulSoup(first_html, "html.parser")
-        
-        model_number_global = self._extract_model_number_global(soup)
         
         # ---------------------------------------------------
         # [NEW] 사이즈표 HTML 파싱
@@ -237,7 +235,7 @@ class UniqloJapanParser:
                 ]
             })
             
-        detail_text = results["detail_description"]
+        detail_data = results["detail_description"]
 
         # ------------------------------------------------------
         # 🔥 최종 구조 생성 (variants 제거)
@@ -248,8 +246,8 @@ class UniqloJapanParser:
             "prices": merged_prices,
             "sizes": [merged_sizes[name] for name in merged_sizes_order],
             "images": final_images,
-            "detail_description": detail_text,
-            "model_number":      model_number_global,
+            "detail_description": detail_data.get("text", ""),
+            "model_number":      detail_data.get("model_number"),
             "options": option_groups,
             "video": video_url,
             "size_headers_original": headers,
@@ -408,23 +406,6 @@ class UniqloJapanParser:
 
         return clean
     
-    
-    def _extract_model_number_global(self, soup: BeautifulSoup):
-        """
-        페이지 전체 HTML 기준 상품번호 추출
-        상세설명에 없어도 잡히도록 전역 탐색
-        """
-        import re
-
-        text = soup.get_text(" ", strip=True)
-
-        m = re.search(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", text)
-        if m:
-            return m.group(1)
-
-        return None
-
-    
     # ------------------------------------------------------
     # 상세설명 파싱 (상세 / 사양 / 소재·손질)
     # ------------------------------------------------------
@@ -472,29 +453,27 @@ class UniqloJapanParser:
                 parts.append(t)
 
         if not parts:
-            return ""
+            return {"text": "", "model_number": None}
 
         # 최종 텍스트 병합
-        text = "\n\n".join(parts).strip()
-        
-        # 商品番号 / 品番 라벨 + 값 전체 제거
-        text = re.sub(r"商品番号\s*[:：]?\s*[0-9A-Za-z\-]*", "", text)
-        text = re.sub(r"品番\s*[:：]?\s*[0-9A-Za-z\-]*", "", text)
+        final_text = "\n\n".join(parts).strip()
 
-        # 단독 숫자 상품코드 줄 제거
-        lines = text.split("\n")
-        lines = [l for l in lines if not re.fullmatch(r"\s*\d{6,8}\s*", l)]
-        text = "\n".join(lines)
+        # ============================================
+        # 🔥 상품번호 추출 및 제거 (파서에서 처리)
+        # ============================================
+        import re
+        model_number = None
 
-        # 상품번호 제거 후 생긴 ' : ' 단독 구문만 정리
-        text = re.sub(r"\n\s*[:：]\s*\n", "\n", text)
+        m = re.search(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", final_text)
+        if m:
+            model_number = m.group(1)
+            final_text = re.sub(r"商品番号[:：]?\s*([0-9A-Za-z\-]+)", "", final_text).strip()
 
-        # 공백 정리
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        text = re.sub(r"[ ]{2,}", " ", text).strip()
-        
-        return text
-        
+        return {
+            "text": final_text,
+            "model_number": model_number
+        }
+
 
     
     def _parse_size_chart(self, soup: BeautifulSoup):

@@ -5,11 +5,9 @@ from tkinter import ttk
 import logging
 
 log = logging.getLogger(__name__)
-log.setLevel(logging.DEBUG)
 
 from gui.widgets.scroll_frame import ScrollFrame
 from gui.widgets.image_loader import load_image_async
-from image_tools.image_source_resolver import resolve_item_image_sources
 
 
 class ImagePanel(ttk.LabelFrame):
@@ -20,11 +18,11 @@ class ImagePanel(ttk.LabelFrame):
         self.owner = owner
         self.item = item
 
-        if not hasattr(self.item, "image_checked_map"):
-            self.item.image_checked_map = {}
+        # 🔥 핵심 로그 1: parsed_raw 자체 확인
+        log.debug(f"[UI][ImagePanel] parsed_raw keys={list(item.parsed_raw.keys())}")
 
         # 🔥 핵심 로그 2: images 원본 그대로 확인
-        self.images = resolve_item_image_sources(item)
+        self.images = item.parsed_raw.get("images", [])
         log.debug(
             "[UI][ImagePanel] images loaded "
             f"type={type(self.images)} "
@@ -51,70 +49,38 @@ class ImagePanel(ttk.LabelFrame):
         for w in self.inner.winfo_children():
             w.destroy()
 
-        for idx, src in enumerate(self.images):
+        log.debug(f"[UI][ImagePanel] refresh_images count={len(self.images)}")
+
+        for idx, url in enumerate(self.images):
+            log.debug(f"[UI][ImagePanel] render image[{idx}] url={repr(url)}")
+
             row = ttk.Frame(self.inner, padding=5)
-            row.pack(fill="x", pady=6)
+            row.pack(fill="x", pady=5)
 
-            # ===============================
-            # 1️⃣ 체크 상태 (item 기준)
-            # ===============================
-            checked = tk.BooleanVar(
-                value=self.item.image_checked_map.get(src, False)
-            )
-
-            def on_toggle(v=checked, s=src):
-                self.item.image_checked_map[s] = v.get()
-
-            chk = ttk.Checkbutton(
-                row,
-                variable=checked,
-                command=on_toggle,
-                takefocus=False
-            )
-            chk.pack(side="left", padx=(4, 8))
-
-            # ===============================
-            # 2️⃣ 이미지
-            # ===============================
             lbl = ttk.Label(row, text="로딩중...")
             lbl.pack(side="left", padx=4)
 
-            def toggle_from_image(event, v=checked, s=src):
-                v.set(not v.get())
-                self.item.image_checked_map[s] = v.get()
-
-            lbl.bind("<Button-1>", toggle_from_image)
-
             load_image_async(
-                src,
+                url,
                 (140, 140),
-                lambda img, lbl=lbl: (
-                    lbl.configure(image=img, text=""),
+                lambda img, lbl=lbl, u=url: (
+                    log.debug(
+                        f"[UI][ImagePanel] load_result url={repr(u)} success={bool(img)}"
+                    ),
+                    lbl.configure(image=img, text="") if img else lbl.configure(text="[오류]"),
                     setattr(lbl, "image", img)
-                ) if img else lbl.configure(text="[오류]"),
+                ),
                 row
             )
 
-            # ===============================
-            # 3️⃣ 버튼 컬럼 (세로)
-            # ===============================
-            btn_col = ttk.Frame(row)
-            btn_col.pack(side="right", padx=6)
+            ttk.Button(row, text="X", width=3,
+                       command=lambda i=idx: self.delete_img(i)).pack(side="right")
 
-            ttk.Button(
-                btn_col, text="▲", width=2,
-                command=lambda i=idx: self.move_up(i)
-            ).pack(fill="x", pady=1)
+            ttk.Button(row, text="▲", width=2,
+                       command=lambda i=idx: self.move_up(i)).pack(side="right")
 
-            ttk.Button(
-                btn_col, text="▼", width=2,
-                command=lambda i=idx: self.move_down(i)
-            ).pack(fill="x", pady=1)
-
-            ttk.Button(
-                btn_col, text="X", width=2,
-                command=lambda i=idx: self.delete_img(i)
-            ).pack(fill="x", pady=1)
+            ttk.Button(row, text="▼", width=2,
+                       command=lambda i=idx: self.move_down(i)).pack(side="right")
 
     # ---------------------------------------------------
     # 이미지 조작
@@ -140,5 +106,5 @@ class ImagePanel(ttk.LabelFrame):
     # save
     # ---------------------------------------------------
     def save(self):
-        self.item.final_image_sources = self.images
+        self.item.parsed_raw["images"] = self.images
         self.item.thumbnail_url = self.images[0] if self.images else None

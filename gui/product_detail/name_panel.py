@@ -10,7 +10,6 @@ from utils.path import p
 from gui.widgets.scroll_frame import ScrollFrame
 from gui.widgets.thumbnail_helper import load_thumbnail_async
 from gui.widgets.image_loader import load_image_async
-from image_tools.image_source_resolver import resolve_item_image_sources
 
 from pname_keyword import extract_keywords
 from utils.product_name_generator import generate_final_name
@@ -48,70 +47,20 @@ class NamePanel(ttk.LabelFrame):
         self.selected_main_image = tk.StringVar()
         self._grid_img_cache = []
 
+        all_imgs = []
+        
         self._selected_windly_category = None
         self._current_mode = None
 
-        # ================================
-        # 1. 옵션 이미지 URL 수집
-        # ================================
-        option_image_urls = set()
-        for opt in item.parsed_raw.get("options", []):
-            for v in opt.get("values", []):
-                img = v.get("image")
-                if isinstance(img, str) and img.startswith("http"):
-                    option_image_urls.add(img)
+        # 메인 이미지
+        for url in item.parsed_raw.get("images", []):
+            if isinstance(url, str) and url.startswith("http"):
+                all_imgs.append(url)
 
-        # ================================
-        # 2. file_path → original_url 매핑
-        # ================================
-        file_to_original_url = {}
-        logo_results = getattr(item, "logo_job_results", None)
-        if isinstance(logo_results, list):
-            for r in logo_results:
-                url = r.get("url")
-                fp = r.get("file_path")
-                if url and fp:
-                    file_to_original_url[os.path.abspath(fp)] = url
+        print(f"[DETAIL] 이미지 {len(all_imgs)}개")
 
-        def is_option_image(src: str) -> bool:
-            if src.startswith("http"):
-                return src in option_image_urls
-
-            src_abs = os.path.abspath(src)
-            original_url = file_to_original_url.get(src_abs)
-            if original_url:
-                return original_url in option_image_urls
-
-            return False
-
-        # ================================
-        # 3. 이미지 소스 결정 (중요)
-        # ================================
-        sources = resolve_item_image_sources(item)
-
-        all_imgs = []
-        for src in sources:
-            if not isinstance(src, str):
-                continue
-            if is_option_image(src):
-                continue
-            all_imgs.append(src)
-
-        try:
-            local_cnt = sum(1 for u in all_imgs if isinstance(u, str) and os.path.exists(u))
-            print(f"[DETAIL] 이미지 {len(all_imgs)}개 (옵션 제외) local={local_cnt} url={len(all_imgs)-local_cnt}")
-            for i, u in enumerate(all_imgs[:6]):
-                flag = "LOCAL" if isinstance(u, str) and os.path.exists(u) else "URL"
-                print(f"[DETAIL] src[{i}] {flag} {u}")
-        except Exception as e:
-            print("[DETAIL] image source log failed:", e)
-
-        # ================================
-        # 4. UI 렌더링
-        # ================================
         COLUMN = 4
         THUMB = (80, 80)
-        MAX_IMAGES = 8
 
         def toggle_radio(v):
             cur = self.selected_main_image.get()
@@ -120,20 +69,25 @@ class NamePanel(ttk.LabelFrame):
         row = col = 0
         root = inner2.winfo_toplevel()
 
-        for src in all_imgs[:MAX_IMAGES]:
+        MAX_IMAGES = 8
+
+        for url in all_imgs[:MAX_IMAGES]:
             cell = ttk.Frame(inner2, padding=0)
             cell.grid(row=row, column=col, sticky="nsew", padx=1, pady=1)
 
-            rb = ttk.Radiobutton(cell, variable=self.selected_main_image, value=src)
+            rb = ttk.Radiobutton(cell, variable=self.selected_main_image, value=url)
             rb.pack(anchor="center")
 
             lb = ttk.Label(cell, text="loading...")
             lb.pack()
 
-            rb.bind("<Button-1>", lambda e, v=src: toggle_radio(v))
-            lb.bind("<Button-1>", lambda e, v=src: toggle_radio(v))
-            cell.bind("<Button-1>", lambda e, v=src: toggle_radio(v))
+            rb.bind("<Button-1>", lambda e, u=url: toggle_radio(u))
+            lb.bind("<Button-1>", lambda e, u=url: toggle_radio(u))
+            cell.bind("<Button-1>", lambda e, u=url: toggle_radio(u))
 
+            # ------------------------------------------------------------
+            # 썸네일 비동기 로딩
+            # ------------------------------------------------------------
             def cb(photo, label=lb):
                 if not label.winfo_exists():
                     return
@@ -143,16 +97,12 @@ class NamePanel(ttk.LabelFrame):
                 else:
                     label.config(text="LOAD_FAIL")
 
-            if isinstance(src, str) and src.startswith("http"):
-                load_thumbnail_async(src, THUMB, cb, root)
-            else:
-                load_image_async(src, THUMB, cb, root)
+            load_thumbnail_async(url, THUMB, cb, root)
 
             col += 1
             if col == COLUMN:
                 col = 0
                 row += 1
-
 
 
         img_end_row = row
@@ -241,12 +191,10 @@ class NamePanel(ttk.LabelFrame):
             def task():
                 try:
                     new_name = generate_final_name(
-                        product_item=item,        # 🔥 반드시 첫 번째지만 키워드로 전달 가능
                         translated_name=translated_name,
                         keyword_list=keywords,
-                        image_url=selected_img,
+                        image_url=selected_img
                     )
-
 
                     if not new_name:
                         print("[상품명 실패] 결과 없음")

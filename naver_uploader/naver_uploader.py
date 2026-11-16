@@ -2,7 +2,6 @@ from naver_uploader.image_uploader import ImageUploader
 from naver_uploader.naver_api_client import NaverApiClient
 from naver_uploader.builders.naver_product_builder import NaverProductBuilder
 from utils.path import p
-from image_tools.image_source_resolver import resolve_item_image_sources
 import os
 
 
@@ -21,9 +20,9 @@ class NaverUploader:
         print("\n[NAVER_UPLOADER] run_for_item START")
 
         rep_uploaded = None
-        imgs = resolve_item_image_sources(item) or []
+        imgs = item.parsed_raw.get("images", []) or []
 
-        rep_source = None  # "processed" | "file" | "url"
+        rep_source = None  # "processed" | "url"
         rep_url_used = None
 
         # 1) 가공 썸네일
@@ -39,14 +38,9 @@ class NaverUploader:
         # 2) thumbnail_url
         if not rep_uploaded and getattr(item, "thumbnail_url", None):
             rep_url_used = item.thumbnail_url
-            if isinstance(rep_url_used, str) and os.path.exists(rep_url_used):
-                print("[IMG] 원본 썸네일 FILE 사용:", rep_url_used)
-                rep_uploaded = self.image_uploader.upload_image_from_file(rep_url_used)
-                rep_source = "file"
-            else:
-                print("[IMG] 원본 썸네일 URL 사용:", rep_url_used)
-                rep_uploaded = self.image_uploader.upload_image_from_url(rep_url_used)
-                rep_source = "url"
+            print("[IMG] 원본 썸네일 URL 사용:", rep_url_used)
+            rep_uploaded = self.image_uploader.upload_image_from_url(rep_url_used)
+            rep_source = "url"
 
         # 3) images[0]
         if not rep_uploaded:
@@ -55,12 +49,8 @@ class NaverUploader:
                 return False
             rep_url_used = imgs[0]
             print("[IMG] images[0] 사용:", rep_url_used)
-            if isinstance(rep_url_used, str) and os.path.exists(rep_url_used):
-                rep_uploaded = self.image_uploader.upload_image_from_file(rep_url_used)
-                rep_source = "file"
-            else:
-                rep_uploaded = self.image_uploader.upload_image_from_url(rep_url_used)
-                rep_source = "url"
+            rep_uploaded = self.image_uploader.upload_image_from_url(rep_url_used)
+            rep_source = "url"
 
         if not rep_uploaded:
             print("[ERROR] 대표 이미지 업로드 실패")
@@ -81,12 +71,7 @@ class NaverUploader:
         
         detail = []
         for url in detail_src_urls:
-            if isinstance(url, str) and os.path.exists(url):
-                up = self.image_uploader.upload_image_from_file(url)
-            elif isinstance(url, str):
-                up = self.image_uploader.upload_image_from_url(url)
-            else:
-                up = None
+            up = self.image_uploader.upload_image_from_url(url)
             if up:
                 detail.append(up)
 

@@ -118,7 +118,6 @@ class DescriptionPanel(ttk.LabelFrame):
 
             rowf.columnconfigure(0, weight=1)
             rowf.columnconfigure(1, weight=1)
-            rowf.columnconfigure(2, weight=0)
 
             e_left = ttk.Entry(rowf)
             e_left.insert(0, h)
@@ -137,14 +136,6 @@ class DescriptionPanel(ttk.LabelFrame):
             e_right.insert(0, display)
             e_right.grid(row=0, column=1, padx=5, sticky="ew")
             self.right_entries.append(e_right)
-            self._bind_size_header_entry_style(e_left, e_right)
-
-            ttk.Button(
-                rowf,
-                text="매핑저장",
-                width=8,
-                command=lambda left=e_left, right=e_right: self.save_size_header_mapping_row(left, right),
-            ).grid(row=0, column=2, padx=(0, 5), sticky="w")
 
         ttk.Button(
             inner, text="헤더 매핑 파일 열기",
@@ -173,52 +164,6 @@ class DescriptionPanel(ttk.LabelFrame):
     # 상세설명 생성
     # ============================================================
     
-
-    def _load_size_mapping_file(self):
-        if not os.path.exists(SIZE_MAPPING_PATH):
-            return {}
-        try:
-            with open(SIZE_MAPPING_PATH, "r", encoding="utf-8") as f:
-                data = json.load(f)
-            return data if isinstance(data, dict) else {}
-        except Exception:
-            return {}
-
-    def _bind_size_header_entry_style(self, left_entry, right_entry):
-        def refresh(_event=None):
-            key = left_entry.get().strip()
-            val = right_entry.get().strip()
-            mapping = self._load_size_mapping_file()
-            mapped = mapping.get(key)
-            if mapped and mapped == val:
-                right_entry.configure(style="Mapped.TEntry")
-            else:
-                right_entry.configure(style="Translated.TEntry")
-
-        right_entry.bind("<KeyRelease>", refresh)
-        right_entry.bind("<FocusOut>", refresh)
-
-    def save_size_header_mapping_row(self, left_entry, right_entry):
-        key = left_entry.get().strip()
-        val = right_entry.get().strip()
-        if not key or not val:
-            messagebox.showwarning("매핑 저장", "원본/결과 값을 모두 입력하세요.", parent=self.winfo_toplevel())
-            return
-
-        mapping = self._load_size_mapping_file()
-        mapping[key] = val
-        with open(SIZE_MAPPING_PATH, "w", encoding="utf-8") as f:
-            json.dump(mapping, f, ensure_ascii=False, indent=2)
-
-        right_entry.configure(style="Mapped.TEntry")
-
-        try:
-            self.item.size_html = normalize_size_chart(
-                self.item.size_headers_original,
-                self.item.size_rows_original
-            )
-        except Exception:
-            pass
 
     def generate_description(self):
         original_text = self.item.detail_text or ""

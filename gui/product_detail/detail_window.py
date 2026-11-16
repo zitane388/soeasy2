@@ -37,7 +37,7 @@ class DetailWindow(CenterPopup):
         super().__init__(
             parent=parent,
             title="상품 상세정보",
-            size=(1750, 950),
+            size=(1700, 950),
             modal=False
         )
 
@@ -64,7 +64,7 @@ class DetailWindow(CenterPopup):
         content.columnconfigure(0, weight=4, uniform="col")
         content.columnconfigure(1, weight=3, uniform="col")
         content.columnconfigure(2, weight=4, uniform="col")
-        content.columnconfigure(3, weight=4, uniform="col")
+        content.columnconfigure(3, weight=3, uniform="col")
         content.columnconfigure(4, weight=4, uniform="col")
         content.rowconfigure(0, weight=1)
 

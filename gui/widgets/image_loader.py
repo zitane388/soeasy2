@@ -3,7 +3,6 @@
 import requests
 from PIL import Image, ImageTk
 import io
-import os
 import base64
 import threading
 
@@ -35,8 +34,13 @@ def resize_aspect_fit(img, target_size):
 
 
 # ==========================================================
-# 동기 다운로드 + 캐싱 (URL 전용)
+# 동기 다운로드 + 캐싱
 # ==========================================================
+import urllib.request
+import ssl
+from PIL import Image, ImageTk
+import io
+
 from image_tools.image_fetcher import fetch_image_content
 
 def get_cached_image(url, size=(160, 160), disable_cache=False):
@@ -44,27 +48,29 @@ def get_cached_image(url, size=(160, 160), disable_cache=False):
     if not disable_cache and key in IMAGE_CACHE:
         return IMAGE_CACHE[key]
 
+    # 통합 다운로더 호출
     data = fetch_image_content(url)
-    if not data:
-        return None
+    
+    if not data: return None
 
     try:
         raw_img = Image.open(io.BytesIO(data))
         raw_img.load()
         img = resize_aspect_fit(raw_img, size)
         tki = ImageTk.PhotoImage(img)
-        if not disable_cache:
-            IMAGE_CACHE[key] = tki
+        if not disable_cache: IMAGE_CACHE[key] = tki
         return tki
-    except Exception:
-        return None
+    except: return None
+
+
 
 
 # ==========================================================
-# Base64 이미지
+# Base64 이미지 (네이버 옵션 이미지 등)
 # ==========================================================
 def get_cached_image_base64(data, size=(40, 40)):
     key = (data, size)
+
     if key in BASE64_CACHE:
         return BASE64_CACHE[key]
 
@@ -73,64 +79,31 @@ def get_cached_image_base64(data, size=(40, 40)):
         raw_img = Image.open(io.BytesIO(raw))
         img = resize_aspect_fit(raw_img, size)
         tki = ImageTk.PhotoImage(img)
+
         BASE64_CACHE[key] = tki
         return tki
+
     except Exception:
         return None
 
 
 # ==========================================================
-# 비동기 이미지 로더 (최종)
+# 비동기 이미지 로더 (URL)
 # ==========================================================
-def load_image_async(src, size, callback, root, disable_cache=False):
-    """
-    src:
-      - URL (http/https)
-      - 로컬 파일 경로
-      - PIL.Image.Image  ✅ (추가)
-    """
-    import logging
-    log = logging.getLogger(__name__)
+def load_image_async(url, size, callback, root, disable_cache=False):
 
-    log.debug(
-        "[IMG_LOADER] src_type=%s exists=%s",
-        type(src),
-        os.path.exists(src) if isinstance(src, str) else "N/A",
-    )
-
-    # ---------------------------------------------
-    # 0️⃣ PIL Image 직접 전달된 경우 (파일 생성 없음)
-    # ---------------------------------------------
-    if isinstance(src, Image.Image):
-        def task():
-            try:
-                img = resize_aspect_fit(src, size)
-                tkimg = ImageTk.PhotoImage(img)
-                root.after(0, lambda: callback(tkimg))
-            except Exception:
-                root.after(0, lambda: callback(None))
-        threading.Thread(target=task, daemon=True).start()
-        return
-
-    # ---------------------------------------------
-    # 1️⃣ 로컬 파일 경로
-    # ---------------------------------------------
-    if isinstance(src, str) and os.path.exists(src):
-        return load_local_image_async(src, size, callback, root)
-
-    # ---------------------------------------------
-    # 2️⃣ URL
-    # ---------------------------------------------
-    key = (src, size)
+    # 캐시 즉시 반환
+    key = (url, size)
     if not disable_cache and key in IMAGE_CACHE:
         root.after(0, lambda: callback(IMAGE_CACHE[key]))
         return
 
     def task():
-        img = get_cached_image(src, size, disable_cache)
+        img = get_cached_image(url, size, disable_cache)
         root.after(0, lambda: callback(img))
 
     threading.Thread(target=task, daemon=True).start()
+
 
 
 # ==========================================================
@@ -140,6 +113,7 @@ def load_base64_async(data, size, callback, root):
     def task():
         img = get_cached_image_base64(data, size)
         root.after(0, lambda: callback(img))
+
     threading.Thread(target=task, daemon=True).start()
 
 
@@ -147,6 +121,9 @@ def load_base64_async(data, size, callback, root):
 # 비동기 로컬 파일 이미지 로더
 # ==========================================================
 def load_local_image_async(path, size, callback, root):
+    """
+    로컬 파일 경로 → 비동기 리사이즈 → PhotoImage → callback(photo)
+    """
     def task():
         try:
             img = Image.open(path)
@@ -155,4 +132,5 @@ def load_local_image_async(path, size, callback, root):
             root.after(0, lambda: callback(tkimg))
         except Exception:
             root.after(0, lambda: callback(None))
+
     threading.Thread(target=task, daemon=True).start()

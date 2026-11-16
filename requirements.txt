@@ -1,33 +1,60 @@
-attr==0.3.2
+# Core dependencies
 beautifulsoup4==4.14.3
-ConfigParser==7.2.0
-cryptography==46.0.3
-Cython==3.0.11
-deep_translator==1.11.4
-dl==0.1.0
-docutils==0.22.3
 Flask==3.1.2
 flask_cors==6.0.1
-HTMLParser==0.0.2
-ipython==8.12.3
-ipywidgets==8.1.8
 Jinja2==3.1.6
-keyring==25.7.0
-lockfile==0.12.2
-numpy==2.3.5
-openai==2.8.1
 Pillow==12.0.0
+numpy==2.3.5
+requests>=2.32.0
+python-dotenv>=1.0.0
+
+# API clients
+openai==2.8.1
+httpx[http2]>=0.28.0
+
+# Browser automation
 playwright==1.56.0
-protobuf==6.33.1
-pybase64==1.4.0
+selenium>=4.0.0
+webdriver-manager>=4.0.0
+
+# Image processing
+rembg>=2.0.0
+onnxruntime>=1.23.0
+openvino>=2024.0.0
+onnxruntime-openvino>=1.17.0torch>=2.0.0
+torchvision>=0.15.0
+mediapipe==0.10.5  # 0.10.5 has solutions API, later versions removed it
+
+# Translation
+deep_translator==1.11.4
+
+# Crypto & Security
+cryptography==46.0.3
 pyOpenSSL==25.3.0
 python_bcrypt==0.3.2
-pywin32==306
+pybase64==1.4.0
+
+# Utilities
+protobuf==6.33.1
+websocket_client==1.8.0
+tornado==6.5.2
+
+# Development tools (optional)
+ipython==8.12.3
+ipywidgets==8.1.8
+
+# Legacy/Optional packages (removed problematic Python 2 era packages)
+# Removed: thread, dl, HTMLParser, ConfigParser (conflict with Python 3 built-ins)
+attr==0.3.2
+Cython==3.0.11
+docutils==0.22.3
+keyring==25.7.0
+lockfile==0.12.2
 railroad==0.5.0
 Sphinx==9.0.0
-thread==2.0.5
-tornado==6.5.2
 trove_classifiers==2025.11.14.15
 truststore==0.10.4
 urllib3_secure_extra==0.1.0
-websocket_client==1.8.0
+
+# Windows only - commented out for macOS
+#pywin32==306

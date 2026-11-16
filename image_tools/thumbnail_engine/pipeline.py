@@ -41,7 +41,6 @@ class ThumbnailPipeline:
         canvas_type: str = "square",
         transparent: bool = False,
         force_remove_bg: bool = False,
-        box_rule_key: str | None = None,
         **kwargs # slot_count 대신 범용적인 kwargs 사용
     ) -> Image.Image:
 
@@ -95,7 +94,6 @@ class ThumbnailPipeline:
             target_type=target_type,
             boxes=boxes,
             canvas_type=canvas_type,
-            box_rule_key=box_rule_key,
         )
 
         anchor = self._resolve_anchor(target_type)
@@ -127,7 +125,6 @@ class ThumbnailPipeline:
         canvas_type: str = "square",
         transparent: bool = False,
         force_remove_bg: bool = False,
-        box_rule_key: str | None = None,
         **kwargs
     ) -> Image.Image:
 
@@ -144,13 +141,15 @@ class ThumbnailPipeline:
         if not object_box:
             raise RuntimeError("REMBG failed to detect object box")
 
-        object_box = build_product_box(object_box, box_rule_key)
+        object_box = build_product_box(
+            object_box,
+            image_size=(pil_img.width, pil_img.height),
+        )
 
         engine_result = self.engine.build(
             target_type="product",
             boxes={"object": object_box},
             canvas_type=canvas_type,
-            box_rule_key=box_rule_key, 
         )
 
         result = self.renderer.render(

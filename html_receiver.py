@@ -24,21 +24,12 @@ CORS(app, supports_credentials=True)
 
 # ------------------ HTML 파일 캐시 저장 ------------------ #
 def save_html_to_cache(url: str, html: str) -> str:
-    import hashlib, json
-
-    h = hashlib.md5(url.encode("utf-8")).hexdigest()
-    filename = p("html_cache", f"{h}.html")
-
+    import re
+    safe = re.sub(r"[^a-zA-Z0-9]+", "_", url)
+    filename = p("html_cache", f"{safe}.html")
     with open(filename, "w", encoding="utf-8") as f:
         f.write(html)
-
-    # 메타 파일
-    meta = p("html_cache", f"{h}.json")
-    with open(meta, "w", encoding="utf-8") as f:
-        json.dump({"url": url}, f)
-
     return filename
-
 
 
 # ==========================================================

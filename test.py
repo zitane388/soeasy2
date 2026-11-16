@@ -32,32 +32,28 @@ def value_diversity_score(values):
 
 
 def is_visible(node):
+    """
+    해당 노드가 시각적으로 숨겨져 있는지(display: none, hidden 등) 판별합니다.
+    """
+    # 1. 태그 자체가 hidden 속성을 가졌는지 확인
     if node.has_attr('hidden'):
         return False
-
-    classes = node.get('class', []) or []
-    classes_lower = [c.lower() for c in classes]
-
-    # 🔥 정확히 "숨김용 클래스"일 때만 숨김 처리
-    HIDDEN_CLASS_EXACT = {
-        "hidden",
-        "hide",
-        "sr-only",
-        "visually-hidden",
-        "dn",   # ← 단독 클래스일 때만
-    }
-
-    for c in classes_lower:
-        if c in HIDDEN_CLASS_EXACT:
-            return False
-
-    # inline style
-    style = node.get('style', '').lower().replace(" ", "")
-    if 'display:none' in style or 'visibility:hidden' in style:
+    
+    # 2. 클래스명에 숨김을 의미하는 키워드가 있는지 확인
+    # 'dn' (display: none), 'hidden', 'hide', 'visually-hidden' 등
+    HIDDEN_CLASS_KEYWORDS = ['dn', 'hide', 'hidden', 'visually-hidden', 'sr-only']
+    classes = node.get('class', [])
+    if any(keyword in ' '.join(classes).lower() for keyword in HIDDEN_CLASS_KEYWORDS):
         return False
-
+    
+    # 3. 인라인 스타일 검사
+    style = node.get('style', '').lower()
+    if 'display:none' in style.replace(" ", "") or 'visibility:hidden' in style.replace(" ", ""):
+        return False
+        
     return True
 
+import re
 
 SEMANTIC_ATTRS = {
     "aria-label",
@@ -188,32 +184,39 @@ def extract_option_value_candidates(node):
         "primary": primary,
         "source": source,
         "candidates": candidates,
-        
-        "node": node,
-        "selector": build_click_selector(node),
-        "fingerprint": build_node_fingerprint(node),
     }
 
 def evaluate_option_intent(segment, container=None):
     """
-    옵션 '의도' 판별 (안정 최종본)
+    옵션 '의도' 판별 (최종본)
+
+    - 반복 구조는 이미 segment 단계에서 확보됨
+    - 여기서는 '실제 행동 의도'만 판단
+    - wrapper + 모든 하위 인터랙션 노드를 함께 평가
+
+    반환:
+    {
+        has_intent: bool,
+        strong: bool,
+        action: bool,
+        override_navigation: bool,
+        reasons: []
+    }
     """
 
     reasons = []
     strong = False
     action = False
 
-    # -------------------------------------------------
-    # 1️⃣ segment + 모든 하위 노드 확장
-    # -------------------------------------------------
+    # ✅ 핵심: segment + 모든 하위 노드까지 확장
     nodes = []
     for n in segment:
         nodes.append(n)
         nodes.extend(n.find_all(True, recursive=True))
 
-    # -------------------------------------------------
-    # 2️⃣ STRONG INTENT (상태 기반)
-    # -------------------------------------------------
+    # -------------------------
+    # STRONG INTENT (상태 기반)
+    # -------------------------
     for n in nodes:
         if (
             n.has_attr("aria-selected")
@@ -241,20 +244,11 @@ def evaluate_option_intent(segment, container=None):
             "reasons": list(set(reasons)),
         }
 
-    # -------------------------------------------------
-    # 3️⃣ ACTION INTENT
-    # -------------------------------------------------
+    # -------------------------
+    # ACTION INTENT (행위 기반)
+    # -------------------------
     action_signals = 0
 
-    # 🔥 (A) segment 레벨 링크 옵션 감지 (가장 중요)
-    for n in segment:
-        a = n.find("a", href=True)
-        if a:
-            action_signals += 2
-            reasons.append("segment:a-link")
-            break
-
-    # 🔥 (B) 일반 인터랙션 요소
     for n in nodes:
         if n.name == "button":
             action_signals += 2
@@ -281,11 +275,13 @@ def evaluate_option_intent(segment, container=None):
                 ]
                 if matched:
                     action_signals += 1
-                    reasons.append(f"data-hint:{'/'.join(matched)}")
+                    reasons.append(
+                        f"data-hint:{'/'.join(matched)}"
+                    )
 
-    # -------------------------------------------------
-    # 4️⃣ 컨테이너 보조 신호
-    # -------------------------------------------------
+    # -------------------------
+    # 컨테이너 기반 보조 힌트
+    # -------------------------
     if container and container.get("role") == "list":
         listitems = [
             n for n in segment if n.get("role") == "listitem"
@@ -294,9 +290,6 @@ def evaluate_option_intent(segment, container=None):
             action_signals += 1
             reasons.append("role:list/listitem")
 
-    # -------------------------------------------------
-    # 5️⃣ 최종 판정
-    # -------------------------------------------------
     if action_signals >= 2:
         action = True
 
@@ -309,39 +302,30 @@ def evaluate_option_intent(segment, container=None):
     }
 
 
-
 def is_navigation_segment(segment):
-    
     hrefs = []
-    has_option_semantics = False
-
     for n in segment:
-        # 🔥 옵션 의미 텍스트 감지
-        txt = extract_semantic_text(n)
-        if any(k in txt for k in [
-            "color", "size", "ml", "gb", "charcoal", "blue", "white"
-        ]):
-            has_option_semantics = True
-
-        # 기존 로직
-        a = n.find("a")
-        if not a:
+        if has_state_signal(n) or n.has_attr("aria-expanded") or n.has_attr("aria-current"):
             return False
 
-        href = (a.get("href") or "").strip().lower()
+        role = n.get("role")
+        if role in {"tab", "option", "radio"}:
+            return False
+
+        if n.name != "a":
+            return False
+
+        href = (n.get("href") or "").strip().lower()
         if not href:
             return False
         hrefs.append(href)
 
-    # 🔥 옵션 의미가 있으면 네비게이션 아님
-    if has_option_semantics:
-        return False
-
+    # ✅ 모든 href가 "외부 이동"처럼 제각각이면 네비 가능성이 큼
+    # (옵션 탭은 보통 href가 비슷하거나 동일 패턴)
     if len(set(hrefs)) == len(hrefs):
         return True
 
     return False
-
 
 
 
@@ -406,8 +390,7 @@ def get_interactive_identity(node):
         if el.name == "img" or role == "img":
             identity.append("type:img")
 
-    return tuple(sorted(identity))
-
+    return tuple(identity)
 
 
 def extract_semantic_text(node):
@@ -466,138 +449,65 @@ def extract_semantic_text(node):
     blob = re.sub(r"\s+", " ", blob).strip()
     return blob
 
-def segment_is_site_setting_ui(segment):
-    """
-    쿠키 동의 / 사이트 설정 / 환경설정 UI 제거
-    상품 옵션과 구조적으로 다른 '사이트 제어 UI' 감지
-    """
-
-    # 전체 노드 확장
-    nodes = []
-    for n in segment:
-        nodes.append(n)
-        nodes.extend(n.find_all(True, recursive=True))
-
-    checkbox_count = 0
-    toggle_like = 0
-    cookie_keyword_hit = 0
-    product_signal = 0
-
-    for n in nodes:
-        tag = n.name
-
-        # 1️⃣ 설정 토글 핵심 구조
-        if tag == "input" and n.get("type") == "checkbox":
-            checkbox_count += 1
-
-        # 2️⃣ 토글/스위치 계열 클래스
-        cls = " ".join(n.get("class", [])).lower()
-        if any(k in cls for k in ["toggle", "switch", "consent", "preference"]):
-            toggle_like += 1
-
-        # 3️⃣ 쿠키/프라이버시 키워드
-        text = (n.get_text(" ", strip=True) or "").lower()
-        if any(k in text for k in [
-            "cookie", "privacy", "consent", "marketing cookies",
-            "functional cookies", "performance cookies", "tracking"
-        ]):
-            cookie_keyword_hit += 1
-
-        # 4️⃣ 상품 신호 (있으면 설정 UI 아닐 확률 상승)
-        if tag == "img" and n.get("src"):
-            product_signal += 1
-        if tag == "a" and n.get("href"):
-            href = n.get("href", "")
-            if any(p in href.lower() for p in ["product", "item", "sku"]):
-                product_signal += 1
-
-    # -------------------------
-    # 🎯 판정 로직
-    # -------------------------
-
-    # 체크박스 여러 개 + 토글 UI 구조 + 쿠키 키워드
-    if checkbox_count >= 2 and (toggle_like >= 1 or cookie_keyword_hit >= 1):
-        return True
-
-    # 체크박스가 반복 구조 핵심이면 거의 확정
-    if checkbox_count >= len(segment):
-        return True
-
-    return False
-
-
-def segment_is_carousel_control(segment):
-    """
-    슬라이더/캐러셀 화살표 컨트롤 제거
-    (Splide, Swiper 등)
-    """
-
-    nav_keywords = {"prev", "next", "previous", "slide"}
-    class_keywords = {"splide", "swiper", "carousel", "arrow", "slider"}
-
-    hit = 0
-
-    for n in segment:
-        cls = " ".join(n.get("class", [])).lower()
-        text = (n.get_text(" ", strip=True) or "").lower()
-
-        if any(k in cls for k in class_keywords):
-            hit += 1
-
-        if any(k in text for k in nav_keywords):
-            hit += 1
-
-        if n.has_attr("aria-controls"):
-            val = n.get("aria-controls", "").lower()
-            if "track" in val or "slide" in val:
-                hit += 1
-
-    return hit >= 2
-
 
 def evaluate_optionness(segment, container=None):
-    
-    # 🔴 0️⃣ 사이트 설정 / 쿠키 / 환경설정 UI 제거 (최우선)
-    if segment_is_site_setting_ui(segment):
-        return {
-            "is_optionlike": False,
-            "details": {"reason": "site_setting_ui"},
-        }
-        
-    # 🔴 0.5️⃣ 캐러셀/슬라이더 컨트롤 제거  ← 여기 추가
-    if segment_is_carousel_control(segment):
-        return {"is_optionlike": False, "details": {"reason": "carousel_control"}}
-
-    # 🔴 1️⃣ 상품 엔티티 리스트 제거 (추천상품, 카드 리스트 등)
-    if segment_is_product_list(segment):
-        return {
-            "is_optionlike": False,
-            "details": {"reason": "product_entity_block"},
-        }
-
-    # 🔴 2️⃣ 네비게이션 / 메뉴 / 탭 UI 제거
     if is_navigation_segment(segment):
         return {
             "is_optionlike": False,
             "details": {"reason": "navigation"},
         }
 
-    # 🟢 3️⃣ 여기서부터 진짜 옵션 후보만 남음
     intent = evaluate_option_intent(segment, container)
 
-    if intent.get("has_intent"):
+    if not intent.get("has_intent"):
         return {
-            "is_optionlike": True,
+            "is_optionlike": False,
             "details": intent,
         }
 
     return {
-        "is_optionlike": False,
+        "is_optionlike": True,
         "details": intent,
     }
 
 
 
+
+# def should_skip_container(container):
+#     """
+#     return:
+#         (skip: bool, reason: str)
+#     """
+#     children = container.find_all(recursive=False)
+
+#     # 1️⃣ 인터랙션 없음
+#     has_interaction = False
+#     for c in children:
+#         if c.find(
+#             ["button", "input", "select", "option"],
+#             recursive=True
+#         ):
+#             has_interaction = True
+#             break
+
+#     if not has_interaction:
+#         return True, "no-interaction-in-children"
+
+#     # 2️⃣ 키워드 기반
+#     blob = " ".join(
+#         " ".join(c.get("class", [])) + " " + (c.get("id") or "")
+#         for c in children
+#     ).lower()
+
+#     for k in {
+#         "review", "rating",
+#         "recommend", "related",
+#         "carousel", "gallery"
+#     }:
+#         if k in blob:
+#             return True, f"keyword:{k}"
+
+#     return False, ""
 
 def iter_containers_postorder(root):
     stack = [(root, False)]
@@ -808,54 +718,14 @@ def get_visible_text(node):
 
     return re.sub(r"\s+", " ", " ".join(parts)).strip()
 
-def is_product_entity(node):
-    text = node.get_text(" ", strip=True).lower()
-    html = str(node).lower()
-
-    # 1️⃣ 상품 식별자 (가장 강력)
-    if node.find(attrs={"data-articlecode": True}):
-        return True
-    if node.find(attrs={"data-product-id": True}):
-        return True
-    if node.find(attrs={"data-sku": True}):
-        return True
-
-    # 2️⃣ 가격
-    if re.search(r"\b(₩|\$|€|price|krw|usd)\b", text):
-        return True
-
-    # 3️⃣ 리뷰 / 평점
-    if re.search(r"\b(review|rating|star)\b", text):
-        return True
-
-    # 4️⃣ 상품명 구조
-    if node.find(["h2", "h3", "h4"]):
-        return True
-
-    # 5️⃣ 구매행동
-    if re.search(r"add to bag|wishlist|quick shop|cart", html):
-        return True
-
-    return False
-
-def segment_is_product_list(segment):
-    hits = 0
-    for n in segment:
-        flag = is_product_entity(n)
-        print(f"[PRODUCT_ENTITY_CHECK] tag={n.name} flag={flag}")
-        if flag:
-            hits += 1
-    print(f"[PRODUCT_ENTITY_HITS] {hits} / {len(segment)}")
-    return hits >= max(1, len(segment)//3)
-
 
 
 if __name__ == "__main__":
     from bs4 import BeautifulSoup
 
     TARGET_FILE = "test_html/product_detail.html"
-    OPTION_HINTS = ["COLOR", "NATURAL", "Size", "XXS"]
-    PRODUCT_TITLE = "Sherpa fleece toggle jacket"
+
+    OPTION_HINTS = ["color", "black"]
 
     # =================================================
     # 0️⃣ HTML 로드
@@ -898,10 +768,6 @@ if __name__ == "__main__":
         # diversity score
         primary_values = [v["primary"] for v in extracted_values]
         diversity_score = value_diversity_score(primary_values)
-        
-        if len(set(primary_values)) < len(primary_values):
-            print(f"[DROP] duplicate values detected → {primary_values}")
-            continue
 
         option_candidates.append({
             "index": idx,
@@ -943,8 +809,7 @@ if __name__ == "__main__":
 
     selected_group_ids = pick_option_groups_by_llm(
         VALUE_GROUPS,
-        OPTION_HINTS,
-        PRODUCT_TITLE
+        OPTION_HINTS
     )
 
     final_option_candidates = [
@@ -958,29 +823,9 @@ if __name__ == "__main__":
     # =================================================
     print("\n[SYSTEM] 🧪 최종 옵션 구조 후보 (LLM 필터 통과)")
     print("=" * 120)
-    
-    from models import OptionNodeRef  # 실제 위치에 맞게
-
-    option_node_groups = {}
 
     for cand in final_option_candidates:
         seg = cand["segment"]
-        group_name = guess_group_name(cand)
-        
-        node_refs = []
-        
-        for idx, val in enumerate(cand["values"]):
-            ref = OptionNodeRef(
-            value=val["primary"],
-            selector=val["selector"],
-            fingerprint=val["fingerprint"],
-            depth_index=len(option_node_groups),
-            meta={
-                "source": val["source"]
-            }
-        )
-        node_refs.append(ref)
-        
         result = cand["result"]
 
         print(f"\n[SEGMENT #{cand['index']}]")
@@ -1016,6 +861,4 @@ if __name__ == "__main__":
         print("  - option values:")
         for i, v in enumerate(cand["values"]):
             print(f"      [{i}] {v['primary']} (source={v['source']})")
-            
-    option_node_groups[group_name] = node_refs
 

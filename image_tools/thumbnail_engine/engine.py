@@ -30,33 +30,28 @@ class ThumbnailEngine:
     # --------------------------------------------------
     # target box 생성
     # --------------------------------------------------
-    def _build_target_box(self, target_type: str, boxes: dict, box_rule_key: str | None = None) -> Box:
-    
+    def _build_target_box(self, target_type: str, boxes: dict) -> Box:
         if target_type == "full_body":
             return build_full_body_box(
-            pose_box=boxes["pose"],
-            face_box=boxes.get("face"),
-            rule_key=box_rule_key,
-        )
+                pose_box=boxes["pose"],
+                face_box=boxes.get("face"),
+            )
 
         if target_type == "upper_body":
             return build_upper_body_box(
                 upper_body_box=boxes["upper_body"],
                 face_box=boxes.get("face"),
                 landmarks=boxes.get("landmarks"),
-                rule_key=box_rule_key,
             )
 
         if target_type == "lower_body":
             return build_lower_body_box(
                 lower_body_box=boxes["lower_body"],
-                rule_key=box_rule_key,
             )
 
         if target_type == "product":
             return build_product_box(
-                box=boxes["object"],
-                rule_key=box_rule_key,
+                object_box=boxes["object"],
             )
 
         raise ValueError(f"Unknown target_type: {target_type}")
@@ -82,7 +77,6 @@ class ThumbnailEngine:
         boxes: dict,
         canvas_type: str = "square",
         debug_run_id: str | None = None,
-        box_rule_key: str | None = None,
     ) -> dict:
 
         if debug_run_id is None:
@@ -91,11 +85,7 @@ class ThumbnailEngine:
         policy = POLICIES[target_type]
 
         # 1️⃣ box 결정 (절대 수정/확대 없음)
-        box = self._build_target_box(
-            target_type=target_type,
-            boxes=boxes,
-            box_rule_key=box_rule_key
-        )
+        box = policy["resolve_box"](boxes)
 
         # 2️⃣ pivot 결정
         pivot = policy["resolve_pivot"](box, boxes)
